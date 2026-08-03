@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAuthStore } from "./store/authStore";
+import { useVideoStore } from "./store/videoStore";
 import Login from "./pages/Login";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
@@ -12,8 +13,15 @@ import Settings from "./pages/Settings";
 
 export default function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const connectSocket = useVideoStore((state) => state.connectSocket);
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [selectedVideoId, setSelectedVideoId] = useState(null);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      connectSocket();
+    }
+  }, [isAuthenticated, connectSocket]);
 
   if (!isAuthenticated) {
     return <Login />;
