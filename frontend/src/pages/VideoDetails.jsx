@@ -27,7 +27,8 @@ export default function VideoDetails({ id, onBack }) {
     setLoading(true);
     try {
       const headers = getHeaders();
-      const res = await axios.get(`http://localhost:5000/api/video/${id}`, headers);
+      const baseUrl = import.meta.env.VITE_API_URL || (window.location.port ? `${window.location.protocol}//${window.location.hostname}:5000/api` : "/api");
+      const res = await axios.get(`${baseUrl}/video/${id}`, headers);
       setVideo(res.data);
     } catch (err) {
       console.error("Error fetching video details:", err);
@@ -67,9 +68,9 @@ export default function VideoDetails({ id, onBack }) {
   const isCompleted = video.status === "Completed";
   const isFailed = video.status === "Failed" || video.status === "Stopped";
   
-  const videoUrl = isCompleted ? `http://localhost:5000${video.videoPath}` : null;
-  const thumbUrl = video.thumbnail ? `http://localhost:5000${video.thumbnail}` : null;
-  const downloadUrl = `http://localhost:5000/api/download/${video._id}`;
+  const videoUrl = isCompleted ? video.videoPath : null;
+  const thumbUrl = video.thumbnail ? video.thumbnail : null;
+  const downloadUrl = `/api/download/${video._id}`;
 
   const timelineSteps = [
     { key: "RSS", label: "RSS Collection", minProgress: 10 },

@@ -36,8 +36,8 @@ export default function VideoCard({ video, onView, onDelete }) {
     return `${m}:${s < 10 ? "0" : ""}${s}`;
   };
 
-  const thumbUrl = video.thumbnail ? `http://localhost:5000${video.thumbnail}` : null;
-  const downloadUrl = `http://localhost:5000/api/download/${video._id}`;
+  const thumbUrl = video.thumbnail ? video.thumbnail : null;
+  const downloadUrl = `/api/download/${video._id}`;
 
   return (
     <div className="bg-card rounded-xl overflow-hidden border border-slate-800 hover:border-slate-700 transition-all duration-300 flex flex-col group glow-card">

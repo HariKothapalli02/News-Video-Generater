@@ -20,7 +20,7 @@ export default function RecentVideos({ videos, onView }) {
   };
 
   const getThumbUrl = (v) => {
-    return v.thumbnail ? `http://localhost:5000${v.thumbnail}` : null;
+    return v.thumbnail ? v.thumbnail : null;
   };
 
   return (
@@ -45,7 +45,7 @@ export default function RecentVideos({ videos, onView }) {
           <tbody className="divide-y divide-slate-850">
             {videos.slice(0, 5).map((v) => {
               const thumb = getThumbUrl(v);
-              const downloadUrl = `http://localhost:5000/api/download/${v._id}`;
+              const downloadUrl = `/api/download/${v._id}`;
               const isCompleted = v.status === "Completed";
 
               return (
