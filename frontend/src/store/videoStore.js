@@ -29,7 +29,13 @@ export const useVideoStore = create((set, get) => {
       if (socket) return;
 
       console.log("Connecting to WebSocket server...");
-      socket = io(SOCKET_URL);
+      socket = io(SOCKET_URL, {
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        transports: ["websocket", "polling"]
+      });
 
       socket.on("connect", () => {
         console.log("WebSocket connected.");
