@@ -74,7 +74,7 @@ class VideoQueue {
     console.log(`Spawning Python process: ${pythonBin} ${args.join(" ")} in ${pythonCwd}`);
     this.childProcess = spawn(pythonBin, args, {
       cwd: pythonCwd,
-      env: { ...process.env }
+      env: { ...process.env, PYTHONWARNINGS: "ignore" }
     });
 
     this.childProcess.stdout.on("data", (data) => {
@@ -129,6 +129,9 @@ class VideoQueue {
       if (!line) continue;
 
       if (isStderr) {
+        if (line.includes("FutureWarning") || line.includes("UserWarning") || line.includes("DeprecationWarning") || line.includes("warnings.warn")) {
+          continue;
+        }
         console.error(`[Python stderr] ${line}`);
         this.logsBuffer += `[PYTHON STDERR] ${line}\n`;
         docChanged = true;
