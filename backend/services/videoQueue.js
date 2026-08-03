@@ -44,6 +44,18 @@ class VideoQueue {
     const pythonScript = path.join(__dirname, "..", "..", "python-service", "main.py");
     const pythonCwd = path.join(__dirname, "..", "..", "python-service");
 
+    let pythonBin = process.platform === "win32" ? "python" : "python3";
+    const venvBinLinux = path.join(pythonCwd, "venv", "bin", "python3");
+    const venvBinWin = path.join(pythonCwd, "venv", "Scripts", "python.exe");
+
+    if (fs.existsSync(venvBinLinux)) {
+      pythonBin = venvBinLinux;
+    } else if (fs.existsSync(venvBinWin)) {
+      pythonBin = venvBinWin;
+    } else if (process.env.PYTHON_PATH) {
+      pythonBin = process.env.PYTHON_PATH;
+    }
+
     const args = [
       pythonScript,
       "--job-id", jobId,
@@ -59,8 +71,8 @@ class VideoQueue {
       args.push("--custom-script", videoDoc.customScript);
     }
 
-    console.log(`Spawning Python process: python ${args.join(" ")} in ${pythonCwd}`);
-    this.childProcess = spawn("python", args, {
+    console.log(`Spawning Python process: ${pythonBin} ${args.join(" ")} in ${pythonCwd}`);
+    this.childProcess = spawn(pythonBin, args, {
       cwd: pythonCwd,
       env: { ...process.env }
     });
