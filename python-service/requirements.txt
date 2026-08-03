@@ -1,0 +1,8 @@
+google-generativeai
+requests
+python-dotenv
+faster-whisper
+piper-tts
+moviepy>=2.0.3
+numpy
+pillow

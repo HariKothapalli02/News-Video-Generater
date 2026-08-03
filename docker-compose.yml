@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: bytewire-backend
+    restart: always
+    environment:
+      - PORT=5000
+      - MONGODB_URI=mongodb://admin:H%40ri_2026_MongoDB%219X7%23@13.49.127.20:27017/ytvideogeneration?authSource=admin
+      - JWT_SECRET=bytewire_super_secret_jwt_key_2026
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=admin123
+      - GEMINI_API_KEY=AIzaSyAzyyXvt8PdX_MbJ4BKn0l9xgfY34wzMQ4
+      - PEXELS_API_KEY=vrd7GcXTdpSU3RX4nUQF5UJP94mOTo2Ihd23v6r1reYsx3VZXewTOOtc
+      - VIDEO_STORAGE_DIR=/app/videos
+      - THUMBNAIL_STORAGE_DIR=/app/thumbnails
+      - LOG_STORAGE_DIR=/app/logs
+    volumes:
+      - videos_data:/app/videos
+      - thumbnails_data:/app/thumbnails
+      - logs_data:/app/logs
+      - piper_models:/app/piper
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: bytewire-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  videos_data:
+  thumbnails_data:
+  logs_data:
+  piper_models:

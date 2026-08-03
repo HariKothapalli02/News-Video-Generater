@@ -1,0 +1,33 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+web_modules/
+
+# Python temporary files
+**/__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+python-service/scratch/
+
+# Local env files containing sensitive credentials
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+secrets.txt
+
+# Media storage caches
+videos/
+thumbnails/
+logs/
+
+# Build directories
+dist/
+build/
+
+# OS metadata
+.DS_Store
+Thumbs.db
