@@ -19,10 +19,15 @@ python-service/scratch/
 .env.production.local
 secrets.txt
 
-# Media storage caches
+# Media storage caches & models
 videos/
 thumbnails/
 logs/
+*.onnx
+*.onnx.json
+*.wav
+*.mp4
+piper/
 
 # Build directories
 dist/
@@ -31,3 +36,4 @@ build/
 # OS metadata
 .DS_Store
 Thumbs.db
+
