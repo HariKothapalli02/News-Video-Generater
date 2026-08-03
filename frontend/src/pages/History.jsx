@@ -5,11 +5,12 @@ import Loader from "../components/Loader";
 import { Film, Trash2, History as HistoryIcon, Sparkles } from "lucide-react";
 
 export default function History({ setCurrentPage, setSelectedVideoId }) {
-  const { history, fetchHistory, deleteVideo, loading } = useVideoStore();
+  const { history, fetchHistory, deleteVideo, connectSocket, loading } = useVideoStore();
 
   useEffect(() => {
     fetchHistory();
-  }, [fetchHistory]);
+    connectSocket();
+  }, [fetchHistory, connectSocket]);
 
   const handleView = (id) => {
     setSelectedVideoId(id);

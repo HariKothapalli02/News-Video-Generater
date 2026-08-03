@@ -44,11 +44,7 @@ export default function Generate() {
     fetchStats();
     connectSocket();
     clearError();
-
-    return () => {
-      disconnectSocket();
-    };
-  }, [fetchActiveJob, fetchStats, connectSocket, disconnectSocket, clearError]);
+  }, [fetchActiveJob, fetchStats, connectSocket, clearError]);
 
   // Auto-scroll logs terminal
   useEffect(() => {

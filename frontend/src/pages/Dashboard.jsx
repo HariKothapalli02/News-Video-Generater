@@ -28,9 +28,8 @@ export default function Dashboard({ setCurrentPage, setSelectedVideoId }) {
 
     return () => {
       clearInterval(interval);
-      disconnectSocket();
     };
-  }, [fetchHistory, fetchStats, connectSocket, disconnectSocket]);
+  }, [fetchHistory, fetchStats, connectSocket]);
 
   const handleViewVideo = (id) => {
     setSelectedVideoId(id);
