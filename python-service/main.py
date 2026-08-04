@@ -1,6 +1,10 @@
 import os
+os.environ["GRPC_VERBOSITY"] = "NONE"
+os.environ["GRPC_GOOG_LOG_SEVERITY_THRESHOLD"] = "3"
+
 import sys
 import argparse
+import wave
 import traceback
 from dotenv import load_dotenv
 
@@ -97,10 +101,8 @@ def main():
         print(f"[LOG] Starting text-to-speech audio synthesis (Language: {language})...")
         piper_tts.generate_audio(script_text, voice_path, language)
         
-        from moviepy import AudioFileClip
-        voice_audio = AudioFileClip(voice_path)
-        audio_duration = voice_audio.duration
-        voice_audio.close()
+        with wave.open(voice_path, "rb") as wf:
+            audio_duration = wf.getnframes() / float(wf.getframerate())
         print(f"@DURATION: {audio_duration}")
         print(f"[LOG] Voiceover narration synthesized successfully. Duration: {audio_duration:.2f} seconds.")
 

@@ -1,4 +1,7 @@
 import os
+os.environ["GRPC_VERBOSITY"] = "NONE"
+os.environ["GRPC_GOOG_LOG_SEVERITY_THRESHOLD"] = "3"
+
 import json
 import re
 from dotenv import load_dotenv
