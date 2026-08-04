@@ -110,25 +110,30 @@ def get_scene_clip_paths(query, scene_index, clips_dir, keyword="", video_subjec
     primary_links = search_pexels_videos(primary_query, CLIPS_PER_SCENE)
 
     secondary_links = []
-    if not primary_links and secondary_query:
-        print(f"Primary query failed. Searching secondary query: '{secondary_query}'")
+    if secondary_query and secondary_query != primary_query:
+        print(f"Searching secondary clips for query: '{secondary_query}'")
         secondary_links = search_pexels_videos(secondary_query, CLIPS_PER_SCENE)
 
     subject_links = []
-    if not primary_links and not secondary_links and subject_query:
-        print(f"Secondary query failed. Searching subject query: '{subject_query}'")
+    if subject_query:
+        print(f"Searching generic related clips for video subject: '{subject_query}'")
         subject_links = search_pexels_videos(subject_query, CLIPS_PER_SCENE)
 
-    all_links = list(primary_links)
-    for link in secondary_links:
-        if link not in all_links:
-            all_links.append(link)
-    for link in subject_links:
-        if link not in all_links:
-            all_links.append(link)
+    all_links = []
+    if primary_links:
+        all_links.append(primary_links[0])
+    if secondary_links:
+        all_links.append(secondary_links[0])
+    if subject_links:
+        all_links.append(subject_links[0])
+
+    if len(all_links) < CLIPS_PER_SCENE and len(primary_links) > 1:
+        for link in primary_links[1:]:
+            if link not in all_links:
+                all_links.append(link)
 
     if not all_links:
-        fallback_queries = ["cinematic tech", "futuristic tech", "abstract technology", "digital world", "server room"]
+        fallback_queries = ["cinematic background", "cinematic tech", "futuristic tech", "digital world"]
         fallback_query = random.choice(fallback_queries)
         print(f"All custom queries failed. Using general fallback query: '{fallback_query}'")
         all_links = search_pexels_videos(fallback_query, CLIPS_PER_SCENE)

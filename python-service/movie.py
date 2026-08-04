@@ -223,7 +223,7 @@ def match_scenes_to_audio(scenes, audio_words, audio_duration):
     return timeline
 
 
-def compile_video(timeline, clips_dir, voice_path, srt_path, music_path, output_path, use_music=True, use_subtitles=True, video_subject=""):
+def compile_video(timeline, clips_dir, voice_path, srt_path, music_path, output_path, use_music=True, use_subtitles=True, video_subject="", intro_path=None):
     print("Loading narration audio...")
     voice_audio = AudioFileClip(voice_path)
     audio_duration = voice_audio.duration
@@ -320,6 +320,29 @@ def compile_video(timeline, clips_dir, voice_path, srt_path, music_path, output_
         final_audio = voice_audio
 
     video = video.with_audio(final_audio)
+
+    # Check candidate intro video paths if not explicitly passed
+    if not intro_path:
+        candidates = [
+            os.path.join(os.path.dirname(__file__), "..", "..", "intro.mp4"),
+            os.path.join(os.path.dirname(__file__), "..", "intro.mp4"),
+            os.path.join(os.path.dirname(__file__), "intro.mp4"),
+            "intro.mp4"
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                intro_path = c
+                break
+
+    if intro_path and os.path.exists(intro_path):
+        print(f"[LOG] Prepending intro video from '{intro_path}' without glitches...")
+        try:
+            intro_clip = VideoFileClip(intro_path)
+            intro_clip = resize_crop(intro_clip)
+            video = concatenate_videoclips([intro_clip, video], method="compose")
+            print(f"[LOG] Intro video prepended successfully ({intro_clip.duration:.2f}s). Total duration: {video.duration:.2f}s")
+        except Exception as e:
+            print(f"[LOG] Warning: Failed to attach intro video: {e}")
 
     print(f"\n[LOG] Encoding and writing final MP4 file to {output_path} ...")
     video.write_videofile(

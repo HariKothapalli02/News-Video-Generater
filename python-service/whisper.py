@@ -5,7 +5,7 @@ from faster_whisper import WhisperModel
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-WHISPER_MODEL_NAME = "base"
+WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "small")
 
 
 def format_srt_time(seconds):

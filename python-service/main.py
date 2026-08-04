@@ -122,6 +122,24 @@ def main():
         print("@PROGRESS: 85")
         print("[LOG] Launching MoviePy editor to compile final video overlaying voice, subtitles, and music...")
         
+        intro_path = os.getenv("INTRO_FILE_PATH")
+        if not intro_path or not os.path.exists(intro_path):
+            candidates = [
+                os.path.join(os.path.dirname(__file__), "..", "..", "intro.mp4"),
+                os.path.join(os.path.dirname(__file__), "..", "intro.mp4"),
+                os.path.join(os.path.dirname(__file__), "intro.mp4"),
+                "intro.mp4"
+            ]
+            for c in candidates:
+                if os.path.exists(c):
+                    intro_path = os.path.abspath(c)
+                    break
+
+        if intro_path and os.path.exists(intro_path):
+            print(f"[LOG] Using intro video: {intro_path}")
+        else:
+            intro_path = None
+
         movie.compile_video(
             timeline=timeline,
             clips_dir=clips_dir,
@@ -131,7 +149,8 @@ def main():
             output_path=output_video_path,
             use_music=use_music,
             use_subtitles=use_subtitles,
-            video_subject=subject
+            video_subject=subject,
+            intro_path=intro_path
         )
 
         print("[LOG] Extracting video thumbnail frame...")
