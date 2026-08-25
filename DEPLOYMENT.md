@@ -56,7 +56,7 @@ sudo apt-get install -y docker-compose-v2
    cd ~/bytewire
    ```
 3. Your database is already pre-configured to connect to your external MongoDB instance:
-   `mongodb://admin:H%40ri_2026_MongoDB%219X7%23@13.49.127.20:27017/ytvideogeneration?authSource=admin`
+ 
    
    If you need to update any API keys (such as `GEMINI_API_KEY` or `PEXELS_API_KEY`), open `docker-compose.yml` and modify the environment variables block:
    ```bash
@@ -120,7 +120,7 @@ deactivate
    Ensure storage paths are set to absolute Linux paths:
    ```env
    PORT=5000
-   MONGODB_URI=mongodb://admin:H%40ri_2026_MongoDB%219X7%23@13.49.127.20:27017/ytvideogeneration?authSource=admin
+  
    JWT_SECRET=bytewire_super_secret_jwt_key_2026
    ADMIN_USERNAME=admin
    ADMIN_PASSWORD=admin123
