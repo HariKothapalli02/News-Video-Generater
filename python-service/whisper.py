@@ -14,7 +14,7 @@ from faster_whisper import WhisperModel
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "small")
+WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "base")
 
 
 def format_srt_time(seconds):
@@ -26,6 +26,7 @@ def format_srt_time(seconds):
 
 
 def transcribe_and_generate_srt(audio_path, srt_path):
+    import gc
     print(f"Loading Whisper model '{WHISPER_MODEL_NAME}' on CPU...")
     model = WhisperModel(
         WHISPER_MODEL_NAME,
@@ -104,4 +105,13 @@ def transcribe_and_generate_srt(audio_path, srt_path):
             f.write(f"{s_text}\n\n")
 
     print(f"Transcription complete. Transcribed {len(audio_words)} words and {len(srt_entries)} subtitle cues.")
+
+    # Immediately release Whisper model buffers and garbage collect
+    try:
+        del model
+        del segments
+    except Exception:
+        pass
+    gc.collect()
+
     return audio_words

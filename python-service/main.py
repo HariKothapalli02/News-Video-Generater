@@ -278,7 +278,8 @@ def main():
             use_music=use_music,
             use_subtitles=use_subtitles,
             video_subject=subject,
-            intro_path=intro_path
+            intro_path=intro_path,
+            scratch_dir=scratch_dir
         )
 
         print("[LOG] Extracting video thumbnail frame...")

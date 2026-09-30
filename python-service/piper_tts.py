@@ -221,4 +221,11 @@ def generate_audio(text, output_file, language="english"):
             write_text(text)
 
     print("Narration WAV file generated successfully.")
+    try:
+        del voice
+    except Exception:
+        pass
+    import gc
+    gc.collect()
+
     return output_file

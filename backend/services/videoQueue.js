@@ -91,8 +91,8 @@ class VideoQueue {
       this.handleProcessOutput(data.toString(), videoDoc, true);
     });
 
-    this.childProcess.on("close", async (code) => {
-      console.log(`Python process exited with code ${code}`);
+    this.childProcess.on("close", async (code, signal) => {
+      console.log(`Python process exited with code ${code}, signal: ${signal}`);
       
       const latestDoc = await Video.findById(jobId);
       if (!latestDoc) {
@@ -118,7 +118,8 @@ class VideoQueue {
         latestDoc.status = "Failed";
         latestDoc.progress = 0;
         if (code === null) {
-          this.logsBuffer += `\n[SYSTEM] Process was terminated by the OS (Signal SIGKILL / Out of Memory). Click 'Retry Pipeline' to resume from checkpoint.`;
+          const sigMsg = signal ? `Signal ${signal}` : "Signal SIGKILL / Out of Memory";
+          this.logsBuffer += `\n[SYSTEM] Process was terminated by the OS (${sigMsg}). Click 'Retry Pipeline' to resume from checkpoint.`;
         } else {
           this.logsBuffer += `\n[SYSTEM] Process exited with error code: ${code}`;
         }
