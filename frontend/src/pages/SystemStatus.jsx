@@ -9,7 +9,6 @@ import {
   Clock,
   RotateCcw,
   Trash2,
-  AlertTriangle,
   Server,
   Activity
 } from "lucide-react";
@@ -28,7 +27,7 @@ export default function SystemStatus() {
   }, [fetchStats]);
 
   const handleClearCache = async () => {
-    if (window.confirm("WARNING: This will permanently delete all generated video files (.mp4) and thumbnails (.png) from local disk storage. The database records will NOT be deleted, but downloading them will no longer be possible. Proceed?")) {
+    if (window.confirm("WARNING: This will permanently delete all generated video files (.mp4) and thumbnails (.png) from local disk storage. Proceed?")) {
       setClearing(true);
       const success = await clearStorage();
       setClearing(false);
@@ -50,143 +49,145 @@ export default function SystemStatus() {
   };
 
   if (!stats) {
-    return <Loader label="Interrogating system telemetry probes..." />;
+    return <Loader label="POLLING HOST TELEMETRY PROBES..." />;
   }
 
   return (
-    <div className="space-y-8 animate-fadeIn">
+    <div className="space-y-6 animate-fadeIn pb-12">
       {/* Headline */}
-      <div className="flex flex-col gap-1">
-        <h2 className="text-xl font-bold text-white tracking-wide flex items-center gap-2">
-          <Server className="w-5 h-5 text-primary" />
-          <span>System Status & Operations</span>
-        </h2>
-        <p className="text-xs text-slate-400 font-medium">
-          Monitor server hardware allocations, queue locks, and perform cache cleanup operations
+      <div className="flex flex-col gap-1 border-b border-zinc-800 pb-3">
+        <div className="flex items-center gap-2">
+          <Server className="w-4 h-4 text-white" />
+          <h2 className="text-base font-bold text-white tracking-wider font-mono uppercase">
+            System Telemetry & Controls
+          </h2>
+        </div>
+        <p className="text-xs text-zinc-400 font-mono">
+          Host allocation metrics, subprocess queue locks, and disk operations
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Hardware telemetry (col-8) */}
-        <div className="lg:col-span-8 space-y-6 bg-card border border-slate-800 rounded-2xl p-6 glow-card">
-          <h3 className="font-semibold text-sm text-white mb-6 border-b border-slate-850 pb-3 flex items-center gap-2">
-            <Activity className="w-4.5 h-4.5 text-primary" />
-            <span>Resource Monitor Telemetry</span>
+        <div className="lg:col-span-8 space-y-5 bg-zinc-950 border border-zinc-800 rounded-none p-5 sm:p-6">
+          <h3 className="font-bold text-xs text-white uppercase font-mono tracking-wider mb-4 border-b border-zinc-800 pb-2 flex items-center gap-2">
+            <Activity className="w-3.5 h-3.5 text-white" />
+            <span>Hardware Allocation Probes</span>
           </h3>
 
-          <div className="space-y-6">
+          <div className="space-y-5">
             {/* CPU */}
-            <div className="space-y-2 bg-slate-900/35 border border-slate-850/65 rounded-xl p-4">
-              <div className="flex justify-between items-center text-xs font-semibold text-slate-450">
-                <span className="flex items-center gap-2 text-slate-350">
-                  <Cpu className="w-4.5 h-4.5 text-blue-450" /> CPU Core Load
+            <div className="space-y-2 bg-black border border-zinc-850 rounded-none p-4 font-mono">
+              <div className="flex justify-between items-center text-xs">
+                <span className="flex items-center gap-2 text-zinc-300 uppercase">
+                  <Cpu className="w-4 h-4 text-white" /> CPU Processor Utilization
                 </span>
                 <span className="text-white text-sm font-bold">{stats.cpu}%</span>
               </div>
               <ProgressBar
                 progress={stats.cpu}
-                height="h-3"
-                colorClass={stats.cpu > 75 ? "bg-error" : stats.cpu > 45 ? "bg-warning" : "bg-primary"}
+                height="h-2.5"
+                colorClass={stats.cpu > 75 ? "bg-red-500" : "bg-white"}
               />
             </div>
 
             {/* RAM */}
-            <div className="space-y-2 bg-slate-900/35 border border-slate-850/65 rounded-xl p-4">
-              <div className="flex justify-between items-center text-xs font-semibold text-slate-450">
-                <span className="flex items-center gap-2 text-slate-350">
-                  <Database className="w-4.5 h-4.5 text-success" /> RAM Memory Allocation
+            <div className="space-y-2 bg-black border border-zinc-850 rounded-none p-4 font-mono">
+              <div className="flex justify-between items-center text-xs">
+                <span className="flex items-center gap-2 text-zinc-300 uppercase">
+                  <Database className="w-4 h-4 text-white" /> RAM Memory Allocation
                 </span>
                 <span className="text-white text-sm font-bold">
-                  {stats.ram}% <span className="text-[10px] text-slate-500 font-medium ml-1">({stats.ramDetail})</span>
+                  {stats.ram}% <span className="text-[10px] text-zinc-500 font-normal">({stats.ramDetail})</span>
                 </span>
               </div>
               <ProgressBar
                 progress={stats.ram}
-                height="h-3"
-                colorClass={stats.ram > 80 ? "bg-error" : stats.ram > 60 ? "bg-warning" : "bg-success"}
+                height="h-2.5"
+                colorClass={stats.ram > 80 ? "bg-red-500" : "bg-white"}
               />
             </div>
 
             {/* Disk */}
-            <div className="space-y-2 bg-slate-900/35 border border-slate-850/65 rounded-xl p-4">
-              <div className="flex justify-between items-center text-xs font-semibold text-slate-450">
-                <span className="flex items-center gap-2 text-slate-350">
-                  <HardDrive className="w-4.5 h-4.5 text-pink-400" /> Disk Storage Capacity
+            <div className="space-y-2 bg-black border border-zinc-850 rounded-none p-4 font-mono">
+              <div className="flex justify-between items-center text-xs">
+                <span className="flex items-center gap-2 text-zinc-300 uppercase">
+                  <HardDrive className="w-4 h-4 text-white" /> Disk Storage Capacity
                 </span>
                 <span className="text-white text-sm font-bold">
-                  {stats.disk}% <span className="text-[10px] text-slate-500 font-medium ml-1">({stats.diskDetail})</span>
+                  {stats.disk}% <span className="text-[10px] text-zinc-500 font-normal">({stats.diskDetail})</span>
                 </span>
               </div>
               <ProgressBar
                 progress={stats.disk}
-                height="h-3"
-                colorClass={stats.disk > 90 ? "bg-error" : stats.disk > 75 ? "bg-warning" : "bg-pink-500"}
+                height="h-2.5"
+                colorClass={stats.disk > 90 ? "bg-red-500" : "bg-white"}
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 border-t border-slate-850 pt-6 mt-6">
-            <div className="flex items-center gap-3 bg-slate-900/20 p-3 rounded-lg border border-slate-850">
-              <Clock className="w-4.5 h-4.5 text-slate-400" />
+          <div className="grid grid-cols-2 gap-4 border-t border-zinc-800 pt-5 mt-5 font-mono">
+            <div className="flex items-center gap-3 bg-black p-3 rounded-none border border-zinc-850">
+              <Clock className="w-4 h-4 text-zinc-400" />
               <div className="flex flex-col">
-                <span className="text-[10px] font-semibold text-slate-500 uppercase">System Uptime</span>
-                <span className="text-xs font-bold text-white">{stats.uptime || "Unknown"}</span>
+                <span className="text-[9px] font-bold text-zinc-500 uppercase">System Uptime</span>
+                <span className="text-xs font-bold text-white">{stats.uptime || "Operational"}</span>
               </div>
             </div>
-            <div className="flex items-center gap-3 bg-slate-900/20 p-3 rounded-lg border border-slate-850">
-              <Activity className="w-4.5 h-4.5 text-slate-400" />
+            <div className="flex items-center gap-3 bg-black p-3 rounded-none border border-zinc-850">
+              <Activity className="w-4 h-4 text-zinc-400" />
               <div className="flex flex-col">
-                <span className="text-[10px] font-semibold text-slate-500 uppercase">Active Threads</span>
-                <span className="text-xs font-bold text-white">{stats.currentJob === "Rendering" ? "Rendering Active" : "Idle"}</span>
+                <span className="text-[9px] font-bold text-zinc-500 uppercase">Engine Threads</span>
+                <span className="text-xs font-bold text-white">{stats.currentJob === "Rendering" ? "Active Render" : "Idle"}</span>
               </div>
             </div>
           </div>
         </div>
 
         {/* System Operations controls (col-4) */}
-        <div className="lg:col-span-4 space-y-6">
-          <div className="bg-card border border-slate-800 rounded-2xl p-5 space-y-5 glow-card">
-            <h3 className="font-semibold text-xs text-slate-400 tracking-wider uppercase border-b border-slate-850 pb-2">
-              Administrative Control
+        <div className="lg:col-span-4 space-y-5">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-none p-5 space-y-4 font-mono">
+            <h3 className="font-bold text-xs text-white uppercase tracking-wider border-b border-zinc-800 pb-2">
+              Maintenance Operations
             </h3>
 
-            <p className="text-xs text-slate-450 leading-relaxed font-medium">
-              Execute routine server maintenance operations below. Make sure no rendering operations are active before running cleanup.
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Execute routine server management operations below. Ensure no critical video render tasks are executing prior to invocation.
             </p>
 
             {/* Clear Storage Operation */}
-            <div className="border border-slate-850 p-4 rounded-xl space-y-3.5 bg-slate-900/25">
+            <div className="border border-zinc-850 p-4 rounded-none space-y-2.5 bg-black">
               <div className="flex items-center gap-2 text-xs font-bold text-white">
-                <Trash2 className="w-4.5 h-4.5 text-pink-400" />
-                <span>Wipe Disk Video Cache</span>
+                <Trash2 className="w-4 h-4 text-white" />
+                <span className="uppercase">Flush Video Disk Cache</span>
               </div>
-              <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
-                Deletes all generated `.mp4` and `.png` image previews inside the `/videos` and `/thumbnail` storage directories to free up local disk space.
+              <p className="text-[10px] text-zinc-500 leading-relaxed">
+                Cleans all cached `.mp4` video files and `.png` previews in local storage to liberate NVMe drive capacity.
               </p>
               <button
                 onClick={handleClearCache}
                 disabled={clearing || stats.currentJob === "Rendering"}
-                className="w-full py-2 bg-pink-600/10 hover:bg-pink-600 text-pink-400 hover:text-white border border-pink-600/25 hover:border-pink-600 text-xs font-bold rounded-lg transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                className="w-full py-2 bg-transparent hover:bg-white hover:text-black text-white border border-zinc-700 text-xs font-bold font-mono uppercase tracking-wider rounded-none transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {clearing ? "Wiping Disk..." : "Clear Cache Storage"}
+                {clearing ? "Flushing Files..." : "Execute Cache Purge"}
               </button>
             </div>
 
             {/* Restart Queue Operation */}
-            <div className="border border-slate-850 p-4 rounded-xl space-y-3.5 bg-slate-900/25">
+            <div className="border border-zinc-850 p-4 rounded-none space-y-2.5 bg-black">
               <div className="flex items-center gap-2 text-xs font-bold text-white">
-                <RotateCcw className="w-4.5 h-4.5 text-amber-400" />
-                <span>Reboot Queue Manager</span>
+                <RotateCcw className="w-4 h-4 text-white" />
+                <span className="uppercase">Reboot Pipeline Queue</span>
               </div>
-              <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
-                Kills any active subprocess script tasks, forces the queue locks to unlock, and updates active tasks back to Stopped.
+              <p className="text-[10px] text-zinc-500 leading-relaxed">
+                Terminates orphaned worker subprocesses, releases queue semaphores, and resets engine scheduler locks.
               </p>
               <button
                 onClick={handleRestartService}
                 disabled={restarting}
-                className="w-full py-2 bg-amber-600/10 hover:bg-amber-600 text-amber-405 hover:text-white border border-amber-600/25 hover:border-amber-600 text-xs font-bold rounded-lg transition-all cursor-pointer disabled:opacity-40"
+                className="w-full py-2 bg-white hover:bg-zinc-200 text-black text-xs font-bold font-mono uppercase tracking-wider rounded-none border border-white transition-colors cursor-pointer disabled:opacity-40"
               >
-                {restarting ? "Resetting State..." : "Restart Render Service"}
+                {restarting ? "Rebooting Worker..." : "Restart Engine Service"}
               </button>
             </div>
           </div>
@@ -195,3 +196,4 @@ export default function SystemStatus() {
     </div>
   );
 }
+

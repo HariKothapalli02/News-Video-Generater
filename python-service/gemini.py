@@ -9,7 +9,7 @@ import google.generativeai as genai
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -60,7 +60,7 @@ Analyze the following RSS news items and select the TOP 10 most interesting and 
 Create a complete, cinematic, and highly engaging news narration script.
 
 Requirements:
-1. Target Language: {language}. You MUST write the ENTIRE script (except English format labels like "Fact 1", "Outro", etc.) in {language} (using native characters, e.g., Devanagari script for Hindi, Telugu script for Telugu).
+1. Target Language: English. You MUST write the ENTIRE script in fluent, broadcast-ready, punchy English suitable for a professional YouTube news video.
 2. Video Subject Focus: {subject}.
 3. Custom Prompt/Directions: {custom_prompt or "None provided"}.
 
@@ -118,7 +118,7 @@ The JSON object must have exactly two keys:
 Each scene object in the "scenes" array must contain:
 - scene_text: short script portion in its original language
 - keyword: one important word from the script that is likely spoken in the audio
-- search_query: best Pexels video query, 2 to 5 words in English (Pexels API only accepts English search terms, so translate the keyword/query to English if the script is in Hindi or Telugu)
+- search_query: best Pexels video query, 2 to 5 concrete visual words in English
 - scene_context: a short description of the context/action happening in this specific scene (3 to 8 words in English)
 - mood: cinematic / dramatic / tech / finance / emotional / news / documentary
 

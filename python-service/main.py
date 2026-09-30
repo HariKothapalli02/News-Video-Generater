@@ -27,7 +27,7 @@ def main():
     parser = argparse.ArgumentParser(description="ByteWire AI Video Generation Engine Pipeline")
     parser.add_argument("--job-id", required=True, help="Unique MongoDB ID for the generation job")
     parser.add_argument("--subject", default="technology news", help="The topic of the news video")
-    parser.add_argument("--language", default="english", help="Narration language (english, hindi, telugu)")
+    parser.add_argument("--language", default="english", help="Narration language (english)")
     parser.add_argument("--use-music", type=str, default="true", help="Toggle background music (true/false)")
     parser.add_argument("--use-subtitles", type=str, default="true", help="Toggle subtitle burn-in (true/false)")
     parser.add_argument("--custom-prompt", default="", help="Optional instructions/prompt for scriptwriter")

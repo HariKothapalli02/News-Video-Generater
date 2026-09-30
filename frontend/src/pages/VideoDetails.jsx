@@ -5,11 +5,7 @@ import {
   Download,
   Terminal,
   FileText,
-  Clock,
-  Play,
   RotateCcw,
-  Sparkles,
-  CheckCircle,
   FileVideo
 } from "lucide-react";
 import { useVideoStore } from "../store/videoStore";
@@ -45,21 +41,21 @@ export default function VideoDetails({ id, onBack }) {
     if (video) {
       const success = await retryVideo(video._id);
       if (success) {
-        onBack(); // Go back to generate or dashboard to view live progress
+        onBack();
       }
     }
   };
 
   if (loading) {
-    return <Loader label="Retrieving generation metadata records..." />;
+    return <Loader label="QUERYING ARCHIVE METADATA..." />;
   }
 
   if (!video) {
     return (
-      <div className="space-y-4 text-center py-12 text-slate-500">
-        <p>Video record not found in database.</p>
-        <button onClick={onBack} className="text-primary font-semibold flex items-center gap-1.5 justify-center">
-          <ArrowLeft className="w-4 h-4" /> Go Back
+      <div className="space-y-4 text-center py-12 text-zinc-500 font-mono">
+        <p>RECORD NOT FOUND IN DATABASE ARCHIVES.</p>
+        <button onClick={onBack} className="text-white underline font-bold flex items-center gap-1.5 justify-center cursor-pointer">
+          <ArrowLeft className="w-4 h-4" /> RETURN TO LIST
         </button>
       </div>
     );
@@ -78,7 +74,7 @@ export default function VideoDetails({ id, onBack }) {
     { key: "Script", label: "Script Generation", minProgress: 30 },
     { key: "Piper", label: "Piper Voice", minProgress: 45 },
     { key: "Whisper", label: "Whisper Subtitles", minProgress: 60 },
-    { key: "Pexels", label: "Pexels Downloads", minProgress: 70 },
+    { key: "Pexels", label: "Pexels 3-Clip Sync", minProgress: 70 },
     { key: "MoviePy", label: "MoviePy Rendering", minProgress: 85 },
     { key: "Completed", label: "Completed", minProgress: 100 }
   ];
@@ -86,40 +82,40 @@ export default function VideoDetails({ id, onBack }) {
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
       {/* Top Breadcrumb Nav */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3 border-b border-zinc-800 pb-3">
         <button
           onClick={onBack}
-          className="p-2 rounded-lg bg-card border border-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+          className="p-2 rounded-none bg-black border border-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
         >
-          <ArrowLeft className="w-4.5 h-4.5" />
+          <ArrowLeft className="w-4 h-4" />
         </button>
         <div>
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Project Details</span>
-          <h2 className="text-lg font-bold text-white tracking-wide">{video.title}</h2>
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">Video Inspector</span>
+          <h2 className="text-sm sm:text-base font-bold text-white tracking-wide font-mono uppercase">{video.title}</h2>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* LEFT: Video Player & Timeline Checklist */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-5 space-y-5">
           {/* Player Box */}
-          <div className="bg-slate-950 border border-slate-900 rounded-2xl overflow-hidden shadow-2xl relative aspect-video flex items-center justify-center glow-card">
+          <div className="bg-black border border-zinc-800 rounded-none overflow-hidden relative aspect-video flex items-center justify-center">
             {isCompleted && videoUrl ? (
               <video
                 src={videoUrl}
                 controls
                 poster={thumbUrl || undefined}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover rounded-none"
               />
             ) : (
-              <div className="flex flex-col items-center gap-3 text-center p-6 text-slate-500">
-                <FileVideo className="w-12 h-12 text-slate-700 animate-pulse" />
+              <div className="flex flex-col items-center gap-3 text-center p-6 text-zinc-500">
+                <FileVideo className="w-10 h-10 text-zinc-700 animate-pulse" />
                 <div className="space-y-1">
-                  <h4 className="text-white text-xs font-semibold">Video preview unavailable</h4>
-                  <p className="text-[10px] text-slate-500 max-w-[200px] leading-relaxed">
+                  <h4 className="text-white text-xs font-mono font-bold uppercase">Video Stream Unavailable</h4>
+                  <p className="text-[10px] text-zinc-500 max-w-[220px] leading-relaxed font-mono">
                     {isFailed
-                      ? "The render run aborted or failed. Click retry to run the pipeline again."
-                      : "The video compile run is currently rendering in the queue."}
+                      ? "The render run aborted or failed. Trigger retry to recompile."
+                      : "The video compile run is currently rendering in the engine pipeline."}
                   </p>
                 </div>
                 <StatusBadge status={video.status} />
@@ -128,25 +124,25 @@ export default function VideoDetails({ id, onBack }) {
           </div>
 
           {/* Progress Timeline Checklist */}
-          <div className="bg-card border border-slate-800 rounded-2xl p-5 space-y-4 glow-card">
-            <h3 className="font-semibold text-xs text-slate-400 tracking-wider uppercase border-b border-slate-850 pb-2">
-              Progress Timeline
+          <div className="bg-zinc-950 border border-zinc-800 rounded-none p-4 space-y-3">
+            <h3 className="font-bold text-[10px] font-mono text-zinc-400 tracking-wider uppercase border-b border-zinc-800 pb-2">
+              Execution Timeline
             </h3>
-            <div className="space-y-3.5">
+            <div className="space-y-2.5">
               {timelineSteps.map((step) => {
                 const passed = video.progress >= step.minProgress || (isCompleted && step.key === "Completed");
                 
                 return (
-                  <div key={step.key} className="flex items-center justify-between text-xs">
-                    <span className={`font-medium ${passed ? "text-slate-350" : "text-slate-650"}`}>
+                  <div key={step.key} className="flex items-center justify-between text-xs font-mono">
+                    <span className={passed ? "text-zinc-300 font-medium" : "text-zinc-600"}>
                       {step.label}
                     </span>
                     <span
-                      className={`font-semibold ${
-                        passed ? "text-success bg-success/10 px-2 py-0.5 rounded-full" : "text-slate-700"
+                      className={`text-[10px] font-bold px-1.5 py-0.2 rounded-none border ${
+                        passed ? "bg-white text-black border-white" : "border-zinc-800 text-zinc-700 bg-black"
                       }`}
                     >
-                      {passed ? "✓" : "○"}
+                      {passed ? "✓" : "·"}
                     </span>
                   </div>
                 );
@@ -156,31 +152,31 @@ export default function VideoDetails({ id, onBack }) {
         </div>
 
         {/* RIGHT: Tabs (Script / Logs) */}
-        <div className="lg:col-span-7 bg-card border border-slate-800 rounded-2xl overflow-hidden flex flex-col glow-card h-[550px]">
+        <div className="lg:col-span-7 bg-zinc-950 border border-zinc-800 rounded-none overflow-hidden flex flex-col h-[520px]">
           {/* Tab Selection bar */}
-          <div className="h-12 border-b border-slate-850 bg-slate-900/30 px-6 flex items-center justify-between">
-            <div className="flex gap-4">
+          <div className="h-11 border-b border-zinc-800 bg-black px-4 flex items-center justify-between">
+            <div className="flex gap-2">
               <button
                 onClick={() => setActiveTab("script")}
-                className={`flex items-center gap-2 h-12 text-xs font-semibold border-b-2 px-1 transition-all cursor-pointer ${
+                className={`flex items-center gap-1.5 h-11 text-xs font-mono uppercase tracking-wider border-b-2 px-2 transition-all cursor-pointer ${
                   activeTab === "script"
-                    ? "border-primary text-primary"
-                    : "border-transparent text-slate-400 hover:text-slate-200"
+                    ? "border-white text-white font-bold"
+                    : "border-transparent text-zinc-400 hover:text-zinc-200"
                 }`}
               >
                 <FileText className="w-3.5 h-3.5" />
-                <span>Generated Script</span>
+                <span>Script Content</span>
               </button>
               <button
                 onClick={() => setActiveTab("logs")}
-                className={`flex items-center gap-2 h-12 text-xs font-semibold border-b-2 px-1 transition-all cursor-pointer ${
+                className={`flex items-center gap-1.5 h-11 text-xs font-mono uppercase tracking-wider border-b-2 px-2 transition-all cursor-pointer ${
                   activeTab === "logs"
-                    ? "border-primary text-primary"
-                    : "border-transparent text-slate-400 hover:text-slate-200"
+                    ? "border-white text-white font-bold"
+                    : "border-transparent text-zinc-400 hover:text-zinc-200"
                 }`}
               >
                 <Terminal className="w-3.5 h-3.5" />
-                <span>Generation Logs</span>
+                <span>Pipeline Logs</span>
               </button>
             </div>
 
@@ -189,7 +185,7 @@ export default function VideoDetails({ id, onBack }) {
               {isCompleted ? (
                 <a
                   href={downloadUrl}
-                  className="flex items-center gap-1.5 bg-primary hover:bg-blue-600 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all shadow-md shadow-primary/10 cursor-pointer"
+                  className="flex items-center gap-1.5 bg-white hover:bg-zinc-200 px-3 py-1 text-black rounded-none text-xs font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer"
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -199,46 +195,48 @@ export default function VideoDetails({ id, onBack }) {
               ) : isFailed ? (
                 <button
                   onClick={handleRetry}
-                  className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 bg-zinc-900 hover:bg-white hover:text-black border border-zinc-700 px-3 py-1 text-white rounded-none text-xs font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Retry Job</span>
+                  <span>Retry Pipeline</span>
                 </button>
               ) : null}
             </div>
           </div>
 
           {/* Content Pane */}
-          <div className="flex-1 p-6 overflow-y-auto leading-relaxed text-sm text-slate-300 font-sans selection:bg-primary/20 selection:text-white">
+          <div className="flex-1 p-5 overflow-y-auto leading-relaxed text-xs text-zinc-300 font-mono bg-zinc-950">
             {activeTab === "script" ? (
               video.script ? (
-                <div className="whitespace-pre-wrap font-sans text-sm select-text text-slate-300">
+                <div className="whitespace-pre-wrap select-text text-zinc-300 leading-relaxed font-mono">
                   {video.script}
                 </div>
               ) : (
-                <div className="text-slate-650 text-xs italic flex flex-col items-center justify-center h-full py-12 gap-1">
-                  <span>Script document not generated yet.</span>
-                  <span>Pipeline is currently at step: {video.status}</span>
+                <div className="text-zinc-600 text-xs italic flex flex-col items-center justify-center h-full py-12 gap-1 font-mono">
+                  <span>SCRIPT DOCUMENT NOT POPULATED.</span>
+                  <span>CURRENT PIPELINE STEP: {video.status}</span>
                 </div>
               )
             ) : (
-              <div className="font-mono text-xs text-slate-350 space-y-1 bg-slate-950 p-4 rounded-xl border border-slate-900 h-full overflow-y-auto select-text">
+              <div className="font-mono text-xs text-zinc-350 space-y-1 bg-black p-4 rounded-none border border-zinc-850 h-full overflow-y-auto select-text">
                 {video.logs ? (
                   video.logs.split("\n").map((line, idx) => (
                     <div key={idx} className="whitespace-pre-wrap select-text">
                       {line.startsWith("[PYTHON STDERR]") ? (
-                        <span className="text-error font-medium">{line}</span>
+                        <span className="text-red-400 font-mono">{line}</span>
                       ) : line.startsWith("[PYTHON ERROR]") ? (
-                        <span className="text-error font-bold">{line}</span>
-                      ) : line.startsWith("[SYSTEM]") ? (
-                        <span className="text-primary font-semibold">{line}</span>
+                        <span className="text-red-500 font-bold font-mono">{line}</span>
+                      ) : line.startsWith("@STATUS") ? (
+                        <span className="text-white font-bold font-mono">{line}</span>
+                      ) : line.startsWith("[LOG]") ? (
+                        <span className="text-zinc-300 font-mono">{line}</span>
                       ) : (
-                        <span>{line}</span>
+                        <span className="text-zinc-500 font-mono">{line}</span>
                       )}
                     </div>
                   ))
                 ) : (
-                  <span className="text-slate-650 italic">No execution logs written.</span>
+                  <span className="text-zinc-650 italic font-mono">No console logs available.</span>
                 )}
               </div>
             )}

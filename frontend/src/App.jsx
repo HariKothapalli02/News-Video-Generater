@@ -16,6 +16,7 @@ export default function App() {
   const connectSocket = useVideoStore((state) => state.connectSocket);
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [selectedVideoId, setSelectedVideoId] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -52,28 +53,42 @@ export default function App() {
     setSelectedVideoId(null);
   };
 
+  const handleNavigate = (pageId) => {
+    setCurrentPage(pageId);
+    setSidebarOpen(false);
+  };
+
   return (
-    <div className="min-h-screen bg-background text-gray-100 flex font-sans">
+    <div className="min-h-screen bg-black text-white flex font-sans selection:bg-white selection:text-black">
       {/* Sidebar Layout Navigation */}
-      <Sidebar currentPage={currentPage} setCurrentPage={setCurrentPage} />
+      <Sidebar
+        currentPage={currentPage}
+        setCurrentPage={handleNavigate}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col pl-64 min-h-screen relative">
+      <div className="flex-1 flex flex-col pl-0 lg:pl-64 min-h-screen relative transition-all duration-200">
         {/* Floating Header */}
-        <Header title={getPageTitle()} />
+        <Header
+          title={getPageTitle()}
+          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          isSidebarOpen={sidebarOpen}
+        />
 
         {/* Inner page scrollable viewport */}
-        <main className="flex-1 p-8 pt-24 overflow-y-auto">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 pt-20 sm:pt-24 overflow-y-auto">
           {currentPage === "dashboard" && (
             <Dashboard
-              setCurrentPage={setCurrentPage}
+              setCurrentPage={handleNavigate}
               setSelectedVideoId={setSelectedVideoId}
             />
           )}
           {currentPage === "generate" && <Generate />}
           {currentPage === "history" && (
             <History
-              setCurrentPage={setCurrentPage}
+              setCurrentPage={handleNavigate}
               setSelectedVideoId={setSelectedVideoId}
             />
           )}

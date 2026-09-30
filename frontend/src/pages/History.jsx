@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 import { useVideoStore } from "../store/videoStore";
 import VideoCard from "../components/VideoCard";
 import Loader from "../components/Loader";
-import { Film, Trash2, History as HistoryIcon, Sparkles } from "lucide-react";
+import { Film, History as HistoryIcon } from "lucide-react";
 
 export default function History({ setCurrentPage, setSelectedVideoId }) {
   const { history, fetchHistory, deleteVideo, connectSocket, loading } = useVideoStore();
@@ -24,34 +24,36 @@ export default function History({ setCurrentPage, setSelectedVideoId }) {
   };
 
   return (
-    <div className="space-y-6 animate-fadeIn">
+    <div className="space-y-6 animate-fadeIn pb-12">
       {/* Page Header */}
-      <div className="flex flex-col gap-1">
-        <h2 className="text-xl font-bold text-white tracking-wide flex items-center gap-2">
-          <HistoryIcon className="w-5 h-5 text-primary" />
-          <span>Generation History</span>
-        </h2>
-        <p className="text-xs text-slate-400 font-medium">
-          Manage generated scripts, download finished MP4 rendering, or clear records
+      <div className="flex flex-col gap-1 border-b border-zinc-800 pb-3">
+        <div className="flex items-center gap-2">
+          <HistoryIcon className="w-4 h-4 text-white" />
+          <h2 className="text-base font-bold text-white tracking-wider font-mono uppercase">
+            Generation Archives
+          </h2>
+        </div>
+        <p className="text-xs text-zinc-400 font-mono">
+          Manage rendered Full HD videos, inspect scripts and download files
         </p>
       </div>
 
       {loading && history.length === 0 ? (
-        <Loader label="Retrieving generation history repository..." />
+        <Loader label="SCANNING ARCHIVE STORAGE..." />
       ) : history.length === 0 ? (
-        <div className="bg-card border border-slate-800 rounded-2xl p-16 flex flex-col items-center justify-center text-center gap-4 glow-card">
-          <div className="w-16 h-16 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center justify-center">
-            <Film className="w-8 h-8 text-slate-500" />
+        <div className="bg-zinc-950 border border-zinc-800 rounded-none p-12 sm:p-16 flex flex-col items-center justify-center text-center gap-4">
+          <div className="w-12 h-12 rounded-none bg-black border border-zinc-800 flex items-center justify-center text-white">
+            <Film className="w-6 h-6 text-zinc-400" />
           </div>
           <div className="space-y-1 max-w-sm">
-            <h3 className="font-bold text-white text-sm">No news updates recorded</h3>
-            <p className="text-xs text-slate-400 leading-relaxed font-medium">
-              You haven't generated any videos yet. Go to "Generate Video" to execute the pipeline.
+            <h3 className="font-bold text-white text-xs font-mono uppercase tracking-wider">No Archive Records</h3>
+            <p className="text-xs text-zinc-500 leading-relaxed font-mono">
+              No videos generated yet. Navigate to "Generate Video" to execute the pipeline.
             </p>
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
           {history.map((video) => (
             <VideoCard
               key={video._id}
@@ -65,3 +67,4 @@ export default function History({ setCurrentPage, setSelectedVideoId }) {
     </div>
   );
 }
+

@@ -1,11 +1,9 @@
 import React from "react";
 import {
   Calendar,
-  Clock,
   Download,
   Eye,
   Trash2,
-  AlertTriangle,
   Play,
   Film
 } from "lucide-react";
@@ -32,7 +30,7 @@ export default function VideoCard({ video, onView, onDelete }) {
   const formatDuration = (seconds) => {
     if (!seconds) return "0:00";
     const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
+    const s = Math.round(seconds % 60);
     return `${m}:${s < 10 ? "0" : ""}${s}`;
   };
 
@@ -40,55 +38,58 @@ export default function VideoCard({ video, onView, onDelete }) {
   const downloadUrl = `/api/download/${video._id}`;
 
   return (
-    <div className="bg-card rounded-xl overflow-hidden border border-slate-800 hover:border-slate-700 transition-all duration-300 flex flex-col group glow-card">
+    <div className="bg-zinc-950 rounded-none overflow-hidden border border-zinc-800 hover:border-zinc-500 transition-all duration-200 flex flex-col group">
       {/* Thumbnail / Status Container */}
-      <div className="relative aspect-video bg-slate-950 flex items-center justify-center overflow-hidden border-b border-slate-800">
+      <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden border-b border-zinc-800">
         {thumbUrl ? (
           <img
             src={thumbUrl}
             alt={video.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300 rounded-none"
           />
         ) : (
-          <div className="flex flex-col items-center gap-2 text-slate-600">
-            <Film className="w-10 h-10 animate-pulse text-slate-700" />
-            <span className="text-[11px] font-medium tracking-wide">No preview frame</span>
+          <div className="flex flex-col items-center gap-2 text-zinc-600">
+            <Film className="w-8 h-8 text-zinc-700" />
+            <span className="text-[10px] font-mono tracking-wider">NO PREVIEW FRAME</span>
           </div>
         )}
 
         {/* Floating Duration Badge */}
         {isCompleted && video.duration > 0 && (
-          <div className="absolute bottom-2.5 right-2.5 bg-black/85 backdrop-blur-sm border border-slate-800 px-2 py-0.5 rounded text-[10px] font-bold text-white tracking-wide">
+          <div className="absolute bottom-2 right-2 bg-black/95 border border-zinc-800 px-1.5 py-0.5 rounded-none text-[10px] font-mono font-bold text-white tracking-wider">
             {formatDuration(video.duration)}
           </div>
         )}
 
         {/* Hover overlay play screen */}
         {isCompleted && thumbUrl && (
-          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300 cursor-pointer" onClick={() => onView(video._id)}>
-            <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shadow-lg text-white scale-90 group-hover:scale-100 transition-all duration-300">
-              <Play className="w-4.5 h-4.5 fill-current ml-0.5" />
+          <div
+            className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200 cursor-pointer"
+            onClick={() => onView(video._id)}
+          >
+            <div className="w-10 h-10 rounded-none bg-white text-black flex items-center justify-center border border-white">
+              <Play className="w-4 h-4 fill-current ml-0.5" />
             </div>
           </div>
         )}
       </div>
 
       {/* Info Body */}
-      <div className="p-4 flex-1 flex flex-col justify-between gap-4">
-        <div className="space-y-2">
-          <h3 className="font-semibold text-sm text-white line-clamp-1 group-hover:text-primary transition-colors duration-200">
+      <div className="p-4 flex-1 flex flex-col justify-between gap-3">
+        <div className="space-y-1.5">
+          <h3 className="font-semibold text-xs text-white line-clamp-1 group-hover:underline font-mono">
             {video.title}
           </h3>
-          <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
-            <span>Subject: {video.subject}</span>
+          <div className="flex items-center gap-2 text-[11px] text-zinc-400 font-mono">
+            <span className="uppercase">{video.subject}</span>
             <span>•</span>
-            <span className="capitalize">{video.language}</span>
+            <span className="uppercase text-zinc-500">{video.language}</span>
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-slate-800/60 pt-3">
-          <div className="flex items-center gap-1.5 text-slate-500 text-[11px] font-medium">
-            <Calendar className="w-3.5 h-3.5" />
+        <div className="flex items-center justify-between border-t border-zinc-900 pt-3">
+          <div className="flex items-center gap-1.5 text-zinc-500 text-[10px] font-mono">
+            <Calendar className="w-3 h-3" />
             <span>{formatDate(video.createdAt)}</span>
           </div>
           <StatusBadge status={video.status} />
@@ -96,13 +97,13 @@ export default function VideoCard({ video, onView, onDelete }) {
       </div>
 
       {/* Action Footer */}
-      <div className="bg-slate-900/40 border-t border-slate-800/80 px-4 py-3 flex gap-2">
+      <div className="bg-black border-t border-zinc-800 px-3.5 py-2.5 flex gap-2">
         <button
           onClick={() => onView(video._id)}
-          className="flex-1 flex items-center justify-center gap-1.5 bg-slate-800/80 hover:bg-slate-800 text-white border border-slate-700/60 hover:border-slate-600 rounded-lg py-2 text-xs font-semibold transition-all duration-200"
+          className="flex-1 flex items-center justify-center gap-1.5 bg-zinc-900 hover:bg-white hover:text-black text-white border border-zinc-800 rounded-none py-1.5 text-[11px] font-mono uppercase tracking-wider transition-colors cursor-pointer"
         >
-          <Eye className="w-3.5 h-3.5" />
-          <span>View</span>
+          <Eye className="w-3 h-3" />
+          <span>Inspect</span>
         </button>
 
         {isCompleted ? (
@@ -110,24 +111,24 @@ export default function VideoCard({ video, onView, onDelete }) {
             href={downloadUrl}
             target="_blank"
             rel="noreferrer"
-            className="flex-1 flex items-center justify-center gap-1.5 bg-primary/10 hover:bg-primary text-primary hover:text-white border border-primary/20 hover:border-primary rounded-lg py-2 text-xs font-semibold transition-all duration-200 text-center"
+            className="flex-1 flex items-center justify-center gap-1.5 bg-white hover:bg-zinc-200 text-black border border-white rounded-none py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-colors text-center cursor-pointer"
           >
-            <Download className="w-3.5 h-3.5" />
-            <span>Download</span>
+            <Download className="w-3 h-3" />
+            <span>MP4</span>
           </a>
         ) : (
           <button
             disabled
-            className="flex-1 flex items-center justify-center gap-1.5 bg-slate-800/30 text-slate-600 border border-slate-800/50 rounded-lg py-2 text-xs font-semibold cursor-not-allowed"
+            className="flex-1 flex items-center justify-center gap-1.5 bg-zinc-950 text-zinc-650 border border-zinc-900 rounded-none py-1.5 text-[11px] font-mono uppercase tracking-wider cursor-not-allowed opacity-30"
           >
-            <Download className="w-3.5 h-3.5" />
-            <span>Download</span>
+            <Download className="w-3 h-3" />
+            <span>MP4</span>
           </button>
         )}
 
         <button
           onClick={() => onDelete(video._id)}
-          className="bg-slate-850 hover:bg-red-950/25 border border-slate-750 hover:border-red-900/30 text-slate-400 hover:text-red-400 p-2.5 rounded-lg transition-all duration-200"
+          className="bg-black hover:bg-red-950/40 border border-zinc-800 hover:border-red-900 text-zinc-400 hover:text-red-400 p-2 rounded-none transition-colors cursor-pointer"
           title="Delete video"
         >
           <Trash2 className="w-3.5 h-3.5" />

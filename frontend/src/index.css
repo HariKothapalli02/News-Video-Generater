@@ -1,56 +1,81 @@
 @import "tailwindcss";
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap");
 
 @theme {
-  --color-background: #0B0F19;
-  --color-card: #141A24;
-  --color-primary: #2563EB;
-  --color-success: #10B981;
-  --color-warning: #F59E0B;
-  --color-error: #EF4444;
+  --color-background: #000000;
+  --color-card: #09090b;
+  --color-primary: #ffffff;
+  --color-primary-fg: #000000;
+  --color-border: #27272a;
+  --color-success: #22c55e;
+  --color-warning: #eab308;
+  --color-error: #ef4444;
   
-  --font-sans: "Inter", sans-serif;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
 }
 
+/* Base Body Styles */
 body {
-  background-color: var(--color-background);
-  color: #f3f4f6;
+  background-color: #000000;
+  color: #f4f4f5;
   font-family: var(--font-sans);
   margin: 0;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Premium Scrollbar Customization */
+/* Sharp Corners Rule across the entire application */
+*, ::before, ::after {
+  border-radius: 0px !important;
+}
+
+/* High Contrast Black & White Scrollbar with Sharp Corners */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0B0F19;
+  background: #000000;
+  border-radius: 0px !important;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 9999px;
+  background: #27272a;
+  border-radius: 0px !important;
+  border: 1px solid #18181b;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #52525b;
 }
 
-/* Custom styles for glowing details */
-.glow-primary {
-  box-shadow: 0 0 20px rgba(37, 99, 235, 0.15);
+/* Subtle High-Tech Monochrome Glow */
+.glow-white {
+  box-shadow: 0 0 25px rgba(255, 255, 255, 0.08);
 }
 
 .glow-card {
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.9);
 }
 
+/* Sharp Brutalist Glassmorphism */
 .glassmorphism {
-  background: rgba(20, 26, 36, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(9, 9, 11, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0px !important;
+}
+
+/* Animated Pulse Line */
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(1000%); }
+}
+
+.animate-scanline {
+  animation: scanline 8s linear infinite;
 }

@@ -8,10 +8,10 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 
-CLIPS_PER_SCENE = 2
+CLIPS_PER_SCENE = 3
 
 
-def search_pexels_videos(query, count=2):
+def search_pexels_videos(query, count=3):
     if not PEXELS_API_KEY:
         print("Warning: PEXELS_API_KEY is not configured in .env.")
         return []
@@ -23,7 +23,7 @@ def search_pexels_videos(query, count=2):
     params = {
         "query": query,
         "orientation": "landscape",
-        "per_page": 15
+        "per_page": 20
     }
 
     try:
@@ -38,19 +38,38 @@ def search_pexels_videos(query, count=2):
             return []
 
         videos = response.json().get("videos", [])
+        if not videos:
+            return []
+
+        # Shuffle candidates slightly to avoid identical repetition across similar queries
         random.shuffle(videos)
 
         links = []
         for video in videos:
             files = video.get("video_files", [])
+            if not files:
+                continue
+
+            # Prioritize Full HD 1080p, then 720p HD
+            # Sort by total pixel count descending
+            valid_files = [f for f in files if f.get("link") and f.get("file_type") == "video/mp4"]
+            if not valid_files:
+                valid_files = [f for f in files if f.get("link")]
+
             hd_files = [
-                f for f in files
+                f for f in valid_files
                 if f.get("width", 0) >= 1280 and f.get("height", 0) >= 720
             ]
-            chosen = hd_files[0] if hd_files else (files[0] if files else None)
-            
+            hd_files.sort(
+                key=lambda f: (f.get("width", 0) * f.get("height", 0)),
+                reverse=True
+            )
+
+            chosen = hd_files[0] if hd_files else valid_files[0]
             if chosen and chosen.get("link"):
-                links.append(chosen["link"])
+                link = chosen["link"]
+                if link not in links:
+                    links.append(link)
                 if len(links) >= count:
                     break
 
@@ -64,15 +83,15 @@ def download_video(url, filename, clips_dir):
     os.makedirs(clips_dir, exist_ok=True)
     path = os.path.join(clips_dir, filename)
 
-    if os.path.exists(path):
+    if os.path.exists(path) and os.path.getsize(path) > 100000:
         return path
 
-    print(f"Downloading clip: {filename}")
+    print(f"Downloading clip ({filename})...")
     try:
-        response = requests.get(url, stream=True, timeout=(15, 30))
+        response = requests.get(url, stream=True, timeout=(15, 45))
         response.raise_for_status()
 
-        total_size = int(response.headers.get('content-length', 0))
+        total_size = int(response.headers.get("content-length", 0))
         downloaded = 0
 
         with open(path, "wb") as f:
@@ -82,8 +101,13 @@ def download_video(url, filename, clips_dir):
                     downloaded += len(chunk)
                     if total_size > 0:
                         percent = (downloaded / total_size) * 100
-                        print(f"\rDownload Clip progress: {percent:.1f}% ({downloaded / (1024 * 1024):.2f}MB/{total_size / (1024 * 1024):.2f}MB)", end="", flush=True)
+                        print(f"\rDownload progress: {percent:.1f}% ({downloaded / (1024 * 1024):.2f}MB/{total_size / (1024 * 1024):.2f}MB)", end="", flush=True)
         print()
+        
+        # Verify file size
+        if os.path.getsize(path) < 10000:
+            print(f"Warning: downloaded file {filename} is suspiciously small.")
+            return None
         return path
     except Exception as e:
         print(f"\nFailed to download {filename}: {e}")
@@ -96,47 +120,67 @@ def download_video(url, filename, clips_dir):
 
 
 def clean_filename(text):
-    return re.sub(r"[^a-zA-Z0-9_-]", "_", text.lower())[:50]
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", text.lower())[:40]
 
 
 def get_scene_clip_paths(query, scene_index, clips_dir, keyword="", video_subject=""):
-    time.sleep(0.5)
+    """
+    Downloads exactly 3 distinct high quality clips for each scene
+    using multi-tier queries to ensure relevant, dynamic visual variety.
+    """
+    time.sleep(0.4)
     
     primary_query = f"{video_subject} {keyword}".strip() if keyword else f"{video_subject} {query}".strip()
-    secondary_query = f"{video_subject} {query}".strip() if keyword else ""
-    subject_query = video_subject.strip()
-
-    print(f"Searching primary clips for query: '{primary_query}'")
-    primary_links = search_pexels_videos(primary_query, CLIPS_PER_SCENE)
-
-    secondary_links = []
-    if secondary_query and secondary_query != primary_query:
-        print(f"Searching secondary clips for query: '{secondary_query}'")
-        secondary_links = search_pexels_videos(secondary_query, CLIPS_PER_SCENE)
-
-    subject_links = []
-    if subject_query:
-        print(f"Searching generic related clips for video subject: '{subject_query}'")
-        subject_links = search_pexels_videos(subject_query, CLIPS_PER_SCENE)
+    secondary_query = f"{query}".strip()
+    subject_query = f"{video_subject}".strip()
 
     all_links = []
-    if primary_links:
-        all_links.append(primary_links[0])
-    if secondary_links:
-        all_links.append(secondary_links[0])
-    if subject_links:
-        all_links.append(subject_links[0])
 
-    if len(all_links) < CLIPS_PER_SCENE and len(primary_links) > 1:
-        for link in primary_links[1:]:
-            if link not in all_links:
-                all_links.append(link)
+    # 1. Primary Query
+    print(f"Searching primary clips for query: '{primary_query}'")
+    links_1 = search_pexels_videos(primary_query, count=3)
+    for l in links_1:
+        if l not in all_links:
+            all_links.append(l)
 
-    if not all_links:
-        fallback_queries = ["cinematic background", "cinematic tech", "futuristic tech", "digital world"]
-        fallback_query = random.choice(fallback_queries)
-        print(f"All custom queries failed. Using general fallback query: '{fallback_query}'")
-        all_links = search_pexels_videos(fallback_query, CLIPS_PER_SCENE)
+    # 2. Secondary Query if we need more clips
+    if len(all_links) < CLIPS_PER_SCENE and secondary_query and secondary_query != primary_query:
+        print(f"Searching secondary clips for query: '{secondary_query}'")
+        links_2 = search_pexels_videos(secondary_query, count=3)
+        for l in links_2:
+            if l not in all_links:
+                all_links.append(l)
+
+    # 3. Subject Query if we need more clips
+    if len(all_links) < CLIPS_PER_SCENE and subject_query:
+        print(f"Searching subject clips for query: '{subject_query}'")
+        links_3 = search_pexels_videos(subject_query, count=3)
+        for l in links_3:
+            if l not in all_links:
+                all_links.append(l)
+
+    # 4. Cinematic Fallback Queries if still under 3 clips
+    if len(all_links) < CLIPS_PER_SCENE:
+        fallbacks = [
+            "technology news documentary",
+            "modern artificial intelligence lab",
+            "digital cyber futuristic network",
+            "global data center servers",
+            "high tech corporate broadcast"
+        ]
+        random.shuffle(fallbacks)
+        for fb in fallbacks:
+            print(f"Querying fallback clips: '{fb}'")
+            links_fb = search_pexels_videos(fb, count=3)
+            for l in links_fb:
+                if l not in all_links:
+                    all_links.append(l)
+            if len(all_links) >= CLIPS_PER_SCENE:
+                break
+
+    # If still not enough, repeat existing links to guarantee 3 clips
+    while len(all_links) < CLIPS_PER_SCENE and len(all_links) > 0:
+        all_links.append(all_links[len(all_links) % len(all_links)])
 
     final_links = all_links[:CLIPS_PER_SCENE]
     paths = []
@@ -147,4 +191,11 @@ def get_scene_clip_paths(query, scene_index, clips_dir, keyword="", video_subjec
         if path:
             paths.append(path)
 
+    # Ensure 3 paths: if one download failed, clone the first successful one
+    if paths and len(paths) < CLIPS_PER_SCENE:
+        print(f"Warning: Only downloaded {len(paths)}/{CLIPS_PER_SCENE} clips. Duplicating to guarantee 3 clips for scene {scene_index}.")
+        while len(paths) < CLIPS_PER_SCENE:
+            paths.append(paths[0])
+
+    print(f"[LOG] Scene {scene_index} prepared {len(paths)} clips.")
     return paths
