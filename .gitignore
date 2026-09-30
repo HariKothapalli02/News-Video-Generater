@@ -27,6 +27,7 @@ logs/
 *.onnx.json
 *.wav
 *.mp4
+!intro.mp4
 piper/
 
 # Build directories

@@ -283,7 +283,8 @@ def main():
         )
 
         print("[LOG] Extracting video thumbnail frame...")
-        movie.generate_thumbnail(output_video_path, output_thumbnail_path)
+        intro_offset = movie.get_video_duration(intro_path) if (intro_path and os.path.exists(intro_path)) else 0.0
+        movie.generate_thumbnail(output_video_path, output_thumbnail_path, timestamp_sec=max(1.0, intro_offset + 3.0))
 
         # Clean scratch folder only upon 100% successful completion
         print("[LOG] Cleaning up scratch rendering files...")
