@@ -62,6 +62,7 @@ class VideoQueue {
     }
 
     const args = [
+      "-u",
       pythonScript,
       "--job-id", jobId,
       "--subject", videoDoc.subject,
@@ -79,7 +80,7 @@ class VideoQueue {
     console.log(`Spawning Python process: ${pythonBin} ${args.join(" ")} in ${pythonCwd}`);
     this.childProcess = spawn(pythonBin, args, {
       cwd: pythonCwd,
-      env: { ...process.env, PYTHONWARNINGS: "ignore" }
+      env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONWARNINGS: "ignore" }
     });
 
     this.childProcess.stdout.on("data", (data) => {

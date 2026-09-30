@@ -112,18 +112,19 @@ def main():
                     raise ValueError("Custom script content is required when video-type is 'specific_content'.")
                 script_text = custom_script
             else:
-                print("@STATUS: Collecting RSS")
-                print("@PROGRESS: 10")
-                print("[LOG] Collecting recent articles from RSS feeds...")
+                print("@STATUS: Collecting RSS", flush=True)
+                print("@PROGRESS: 10", flush=True)
+                print("[LOG] Querying verified high-tier RSS news feeds in parallel...", flush=True)
                 news_items = rss.collect_news(video_type)
                 if not news_items:
                     raise ValueError("No news stories collected from RSS feeds.")
-                print(f"[LOG] Scraped and scored {len(news_items)} stories successfully.")
+                print(f"[LOG] Scraped and scored {len(news_items)} top news stories.", flush=True)
 
-                print("@STATUS: Selecting News")
-                print("@PROGRESS: 20")
-                print("[LOG] Running Gemini AI to select top 10 stories and generate video script...")
+                print("@STATUS: Selecting News", flush=True)
+                print("@PROGRESS: 20", flush=True)
+                print(f"[LOG] Running Gemini AI ({gemini.GEMINI_MODEL}) to select top 10 stories and write script...", flush=True)
                 script_text = gemini.generate_script(news_items, subject, language, custom_prompt)
+                print("[LOG] News script written successfully by Gemini AI.", flush=True)
 
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write(script_text)
