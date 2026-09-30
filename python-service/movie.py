@@ -104,26 +104,12 @@ def resize_crop(clip):
     return clip
 
 
-def apply_ken_burns(clip, duration, direction="zoom_in"):
-    """
-    Subtle cinematic camera motion (Ken Burns effect).
-    zoom_in: 1.0 -> 1.05
-    zoom_out: 1.05 -> 1.0
-    """
-    if direction == "zoom_in":
-        def zoom(t):
-            return 1.0 + 0.05 * min(1.0, max(0.0, t / max(0.1, duration)))
-    else:
-        def zoom(t):
-            return 1.05 - 0.05 * min(1.0, max(0.0, t / max(0.1, duration)))
-    
-    return clip.resized(zoom)
-
+import gc
 
 def create_scene_from_paths(paths, duration):
     """
     Merges exactly 3 clips into a single cohesive scene with smooth crossfade
-    transitions between clips and dynamic Ken Burns motion.
+    transitions between clips.
     """
     if not paths:
         return ColorClip(
@@ -132,10 +118,9 @@ def create_scene_from_paths(paths, duration):
         ).with_duration(duration)
 
     num_clips = len(paths)
-    transition_dur = min(0.45, duration / (num_clips * 2.5)) if num_clips > 1 else 0.0
+    transition_dur = min(0.35, duration / (num_clips * 2.5)) if num_clips > 1 else 0.0
     
     # Calculate duration each individual clip must play so total overlaps sum to `duration`
-    # Total duration = num_clips * effective_slot - (num_clips - 1) * transition_dur = duration
     effective_slot = (duration + (num_clips - 1) * transition_dur) / num_clips
 
     processed_clips = []
@@ -151,10 +136,6 @@ def create_scene_from_paths(paths, duration):
                 clip = concatenate_videoclips([clip] * repeat_count)
 
             clip = clip.subclipped(0, effective_slot)
-
-            # Alternate Ken Burns zoom direction between clips
-            direction = "zoom_in" if idx % 2 == 0 else "zoom_out"
-            clip = apply_ken_burns(clip, effective_slot, direction=direction)
 
             # Start time in the composite timeline
             start_time = idx * (effective_slot - transition_dur)
@@ -179,13 +160,7 @@ def create_scene_from_paths(paths, duration):
         size=(FINAL_WIDTH, FINAL_HEIGHT)
     ).with_duration(duration)
 
-    # Subtle cinematic grading overlay to make captions and elements stand out
-    dark_overlay = ColorClip(
-        size=(FINAL_WIDTH, FINAL_HEIGHT),
-        color=(0, 0, 0)
-    ).with_opacity(0.12).with_duration(duration)
-
-    return CompositeVideoClip([scene_composite, dark_overlay], size=(FINAL_WIDTH, FINAL_HEIGHT)).with_duration(duration)
+    return scene_composite
 
 
 def match_scenes_to_audio(scenes, audio_words, audio_duration):
@@ -318,6 +293,7 @@ def compile_video(timeline, clips_dir, voice_path, srt_path, music_path, output_
 
         scene_clip = create_scene_from_paths(paths, duration)
         final_clips.append(scene_clip)
+        gc.collect()
 
     print("\n[LOG] Concatenating scenes with seamless transitions...")
     final_clips_with_fades = []
@@ -428,8 +404,8 @@ def compile_video(timeline, clips_dir, voice_path, srt_path, music_path, output_
         codec="libx264",
         audio_codec="aac",
         preset="fast",
-        bitrate="10000k",
-        threads=4
+        bitrate="6000k",
+        threads=2
     )
     print("[LOG] Video rendering completed successfully at Full HD 1080p.")
     

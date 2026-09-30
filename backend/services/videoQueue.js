@@ -117,7 +117,11 @@ class VideoQueue {
       } else {
         latestDoc.status = "Failed";
         latestDoc.progress = 0;
-        this.logsBuffer += `\n[SYSTEM] Process exited with error code: ${code}`;
+        if (code === null) {
+          this.logsBuffer += `\n[SYSTEM] Process was terminated by the OS (Signal SIGKILL / Out of Memory). Click 'Retry Pipeline' to resume from checkpoint.`;
+        } else {
+          this.logsBuffer += `\n[SYSTEM] Process exited with error code: ${code}`;
+        }
         latestDoc.logs = this.logsBuffer;
         await latestDoc.save();
         this.broadcastUpdate(latestDoc);

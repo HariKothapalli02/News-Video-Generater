@@ -50,22 +50,25 @@ def search_pexels_videos(query, count=3):
             if not files:
                 continue
 
-            # Prioritize Full HD 1080p, then 720p HD
-            # Sort by total pixel count descending
+            # Prioritize crisp Full HD 1080p, then 720p HD.
+            # Avoid 4K/UHD (width > 1920 or height > 1080) to prevent memory exhaustion on cloud servers.
             valid_files = [f for f in files if f.get("link") and f.get("file_type") == "video/mp4"]
             if not valid_files:
                 valid_files = [f for f in files if f.get("link")]
 
-            hd_files = [
-                f for f in valid_files
-                if f.get("width", 0) >= 1280 and f.get("height", 0) >= 720
-            ]
-            hd_files.sort(
-                key=lambda f: (f.get("width", 0) * f.get("height", 0)),
-                reverse=True
-            )
+            fhd_files = [f for f in valid_files if f.get("width") == 1920 or f.get("height") == 1080]
+            hd_files = [f for f in valid_files if f.get("width") == 1280 or f.get("height") == 720]
+            standard_files = [f for f in valid_files if f.get("width", 0) <= 1920 and f.get("height", 0) <= 1080]
 
-            chosen = hd_files[0] if hd_files else valid_files[0]
+            if fhd_files:
+                chosen = fhd_files[0]
+            elif hd_files:
+                chosen = hd_files[0]
+            elif standard_files:
+                chosen = standard_files[0]
+            else:
+                chosen = valid_files[0]
+
             if chosen and chosen.get("link"):
                 link = chosen["link"]
                 if link not in links:
@@ -88,21 +91,27 @@ def download_video(url, filename, clips_dir):
 
     print(f"Downloading clip ({filename})...")
     try:
-        response = requests.get(url, stream=True, timeout=(15, 45))
+        response = requests.get(url, stream=True, timeout=(15, 60))
         response.raise_for_status()
 
         total_size = int(response.headers.get("content-length", 0))
         downloaded = 0
+        last_reported_pct = -1
 
         with open(path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=1024 * 64):
+            for chunk in response.iter_content(chunk_size=1024 * 128):
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
                     if total_size > 0:
-                        percent = (downloaded / total_size) * 100
-                        print(f"\rDownload progress: {percent:.1f}% ({downloaded / (1024 * 1024):.2f}MB/{total_size / (1024 * 1024):.2f}MB)", end="", flush=True)
-        print()
+                        pct = int((downloaded / total_size) * 100)
+                        # Print only at milestone percentages (25%, 50%, 75%) to avoid flooding stdout and DB
+                        if pct in (25, 50, 75) and pct != last_reported_pct:
+                            print(f"[LOG] Download progress: {pct}% ({downloaded / (1024 * 1024):.1f}MB/{total_size / (1024 * 1024):.1f}MB)")
+                            last_reported_pct = pct
+
+        file_size_mb = os.path.getsize(path) / (1024 * 1024)
+        print(f"[LOG] Finished downloading {filename} ({file_size_mb:.2f}MB).")
         
         # Verify file size
         if os.path.getsize(path) < 10000:
