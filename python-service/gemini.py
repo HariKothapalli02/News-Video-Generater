@@ -4,12 +4,13 @@ os.environ["GRPC_GOOG_LOG_SEVERITY_THRESHOLD"] = "3"
 
 import json
 import re
+import time
 from dotenv import load_dotenv
 import google.generativeai as genai
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -38,10 +39,57 @@ def clean_json_response(text):
     return text
 
 
-def generate_script(news_items, subject, language, custom_prompt=""):
+def execute_gemini_with_retry(prompt, model_name=GEMINI_MODEL, max_retries=4):
+    """
+    Calls Gemini API with automated backoff for 429 ResourceExhausted rate-limits.
+    If 429 persists, gracefully falls back to available flash models.
+    """
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY is not configured in .env file.")
 
+    models_to_try = [model_name]
+    # Add fallback models if not already primary
+    for alt in ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]:
+        if alt not in models_to_try:
+            models_to_try.append(alt)
+
+    last_error = None
+    for current_model_name in models_to_try:
+        model = genai.GenerativeModel(current_model_name)
+        for attempt in range(1, max_retries + 1):
+            try:
+                print(f"[LOG] Querying Gemini model '{current_model_name}' (attempt {attempt}/{max_retries})...")
+                response = model.generate_content(prompt)
+                if response and response.text:
+                    return response.text.strip()
+                raise ValueError("Empty response received from Gemini.")
+            except Exception as e:
+                err_str = str(e)
+                last_error = e
+
+                # Detect 429 Quota Exceeded / Rate Limit
+                if "429" in err_str or "ResourceExhausted" in err_str or "quota" in err_str.lower():
+                    # Parse retry_delay seconds if provided in error message
+                    sleep_match = re.search(r"retry_delay\s*\{\s*seconds:\s*(\d+)", err_str)
+                    retry_seconds_match = re.search(r"retry in ([0-9.]+)s", err_str)
+                    
+                    if sleep_match:
+                        wait_sec = min(60, int(sleep_match.group(1)) + 2)
+                    elif retry_seconds_match:
+                        wait_sec = min(60, int(float(retry_seconds_match.group(1))) + 2)
+                    else:
+                        wait_sec = 25 * attempt
+
+                    print(f"[LOG] Gemini 429 Rate Limit encountered. Pausing {wait_sec}s for free tier quota refresh...")
+                    time.sleep(wait_sec)
+                else:
+                    print(f"[LOG] Gemini request failed with error: {e}")
+                    time.sleep(3 * attempt)
+
+    raise last_error or RuntimeError("Gemini failed after retry attempts.")
+
+
+def generate_script(news_items, subject, language, custom_prompt=""):
     formatted_news = []
     for idx, item in enumerate(news_items, 1):
         formatted_news.append(
@@ -96,15 +144,10 @@ NEWS ITEMS:
 {news_text}
 """
 
-    model = genai.GenerativeModel(GEMINI_MODEL)
-    response = model.generate_content(prompt)
-    return response.text.strip()
+    return execute_gemini_with_retry(prompt)
 
 
 def generate_scene_plan(script, max_scenes=15):
-    if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY is not configured in .env file.")
-
     prompt = f"""
 You are a professional faceless YouTube video editor.
 Analyze this script and create a cinematic background video plan.
@@ -134,14 +177,13 @@ SCRIPT:
 {script}
 """
 
-    model = genai.GenerativeModel(GEMINI_MODEL)
-    response = model.generate_content(prompt)
-    cleaned = clean_json_response(response.text)
+    raw_response = execute_gemini_with_retry(prompt)
+    cleaned = clean_json_response(raw_response)
     
     try:
         data = json.loads(cleaned)
     except Exception as e:
-        print("Failed to parse JSON scene plan, falling back to local text processing.", e)
+        print("[LOG] Failed to parse JSON scene plan, falling back to local text processing:", e)
         data = {"video_context": "news broadcast", "scenes": []}
 
     scenes = data.get("scenes", [])

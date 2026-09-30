@@ -3,9 +3,11 @@ os.environ["GRPC_VERBOSITY"] = "NONE"
 os.environ["GRPC_GOOG_LOG_SEVERITY_THRESHOLD"] = "3"
 
 import sys
+import json
 import argparse
 import wave
 import traceback
+import shutil
 from dotenv import load_dotenv
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -21,6 +23,24 @@ import movie
 VIDEO_DIR = os.getenv("VIDEO_STORAGE_DIR", "../videos")
 THUMBNAIL_DIR = os.getenv("THUMBNAIL_STORAGE_DIR", "../thumbnails")
 LOG_DIR = os.getenv("LOG_STORAGE_DIR", "../logs")
+
+
+def save_checkpoint(checkpoint_file, data):
+    try:
+        with open(checkpoint_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"[LOG] Warning: Failed to write checkpoint: {e}")
+
+
+def load_checkpoint(checkpoint_file):
+    if os.path.exists(checkpoint_file):
+        try:
+            with open(checkpoint_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[LOG] Warning: Failed to read checkpoint: {e}")
+    return {}
 
 
 def main():
@@ -51,75 +71,180 @@ def main():
     scratch_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scratch", job_id)
     os.makedirs(scratch_dir, exist_ok=True)
 
+    checkpoint_file = os.path.join(scratch_dir, "checkpoint.json")
+    checkpoint = load_checkpoint(checkpoint_file)
+
+    script_path = os.path.join(scratch_dir, "script.txt")
+    scene_plan_path = os.path.join(scratch_dir, "scene_plan.json")
     voice_path = os.path.join(scratch_dir, "voice.wav")
     srt_path = os.path.join(scratch_dir, "voice.srt")
+    words_path = os.path.join(scratch_dir, "words.json")
+    timeline_path = os.path.join(scratch_dir, "timeline.json")
     music_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "music.mp3")
     clips_dir = os.path.join(scratch_dir, "clips")
+    os.makedirs(clips_dir, exist_ok=True)
     
     output_video_path = os.path.abspath(os.path.join(VIDEO_DIR, f"{job_id}.mp4"))
     output_thumbnail_path = os.path.abspath(os.path.join(THUMBNAIL_DIR, f"{job_id}.png"))
 
     try:
-        if video_type == "specific_content":
-            print("@STATUS: Generating Script")
-            print("@PROGRESS: 30")
-            print("[LOG] Using custom script content provided directly...")
-            if not custom_script:
-                raise ValueError("Custom script content is required when video-type is 'specific_content'.")
-            script_text = custom_script
-        else:
-            print("@STATUS: Collecting RSS")
-            print("@PROGRESS: 10")
-            print("[LOG] Collecting recent articles from RSS feeds...")
-            news_items = rss.collect_news(video_type)
-            if not news_items:
-                raise ValueError("No news stories collected from RSS feeds.")
-            print(f"[LOG] Scraped and scored {len(news_items)} stories successfully.")
+        # ======================================================================
+        # STAGE 1: SCRIPT GENERATION / NEWS SELECTION
+        # ======================================================================
+        script_text = None
+        if os.path.exists(script_path) and os.path.getsize(script_path) > 10:
+            try:
+                with open(script_path, "r", encoding="utf-8") as f:
+                    script_text = f.read().strip()
+                if script_text:
+                    print("@STATUS: Generating Script")
+                    print("@PROGRESS: 30")
+                    print("[LOG] [CHECKPOINT RESUME] Reusing existing validated script from previous attempt.")
+            except Exception as e:
+                print(f"[LOG] Warning reading script checkpoint: {e}")
 
-            print("@STATUS: Selecting News")
-            print("@PROGRESS: 20")
-            print("[LOG] Running Gemini AI to select top 10 stories and generate video script...")
-            script_text = gemini.generate_script(news_items, subject, language, custom_prompt)
-        
+        if not script_text:
+            if video_type == "specific_content":
+                print("@STATUS: Generating Script")
+                print("@PROGRESS: 30")
+                print("[LOG] Using custom script content provided directly...")
+                if not custom_script:
+                    raise ValueError("Custom script content is required when video-type is 'specific_content'.")
+                script_text = custom_script
+            else:
+                print("@STATUS: Collecting RSS")
+                print("@PROGRESS: 10")
+                print("[LOG] Collecting recent articles from RSS feeds...")
+                news_items = rss.collect_news(video_type)
+                if not news_items:
+                    raise ValueError("No news stories collected from RSS feeds.")
+                print(f"[LOG] Scraped and scored {len(news_items)} stories successfully.")
+
+                print("@STATUS: Selecting News")
+                print("@PROGRESS: 20")
+                print("[LOG] Running Gemini AI to select top 10 stories and generate video script...")
+                script_text = gemini.generate_script(news_items, subject, language, custom_prompt)
+
+            with open(script_path, "w", encoding="utf-8") as f:
+                f.write(script_text)
+            checkpoint["has_script"] = True
+            save_checkpoint(checkpoint_file, checkpoint)
+
         safe_script_log = script_text.replace("\n", "\\n")
         print(f"@SCRIPT: {safe_script_log}")
-        
-        print("@STATUS: Generating Script")
-        print("@PROGRESS: 30")
-        print("[LOG] Running Gemini AI to plan visual queries and keywords...")
-        scene_plan = gemini.generate_scene_plan(script_text)
-        scenes = scene_plan.get("scenes", [])
-        video_context = scene_plan.get("video_context", "cinematic compilation")
-        if not scenes:
-            raise ValueError("Gemini failed to generate a scene plan timeline.")
-        print(f"[LOG] Visual scene plan generated: {len(scenes)} scenes planned.")
-        for idx, s in enumerate(scenes, 1):
-            print(f"[LOG] Scene {idx}: keyword='{s['keyword']}' | query='{s['search_query']}'")
 
-        print("@STATUS: Generating Voice")
-        print("@PROGRESS: 45")
-        print(f"[LOG] Starting text-to-speech audio synthesis (Language: {language})...")
-        piper_tts.generate_audio(script_text, voice_path, language)
-        
+        # ======================================================================
+        # STAGE 2: SCENE PLAN (Visual queries and keywords)
+        # ======================================================================
+        scenes = None
+        if os.path.exists(scene_plan_path) and os.path.getsize(scene_plan_path) > 10:
+            try:
+                with open(scene_plan_path, "r", encoding="utf-8") as f:
+                    scene_plan_data = json.load(f)
+                    scenes = scene_plan_data.get("scenes", [])
+                if scenes:
+                    print("[LOG] [CHECKPOINT RESUME] Reusing existing visual scene plan.")
+            except Exception as e:
+                print(f"[LOG] Warning reading scene plan checkpoint: {e}")
+
+        if not scenes:
+            print("@STATUS: Generating Script")
+            print("@PROGRESS: 30")
+            print("[LOG] Running Gemini AI to plan visual queries and keywords...")
+            scene_plan = gemini.generate_scene_plan(script_text)
+            scenes = scene_plan.get("scenes", [])
+            if not scenes:
+                raise ValueError("Gemini failed to generate a scene plan timeline.")
+            with open(scene_plan_path, "w", encoding="utf-8") as f:
+                json.dump(scene_plan, f, indent=2)
+            checkpoint["has_scene_plan"] = True
+            save_checkpoint(checkpoint_file, checkpoint)
+
+        print(f"[LOG] Visual scene plan loaded: {len(scenes)} scenes planned.")
+        for idx, s in enumerate(scenes, 1):
+            print(f"[LOG] Scene {idx}: keyword='{s.get('keyword', '')}' | query='{s.get('search_query', '')}'")
+
+        # ======================================================================
+        # STAGE 3: VOICE SYNTHESIS (Piper TTS)
+        # ======================================================================
+        voice_ready = os.path.exists(voice_path) and os.path.getsize(voice_path) > 20000
+        if voice_ready:
+            print("@STATUS: Generating Voice")
+            print("@PROGRESS: 45")
+            print("[LOG] [CHECKPOINT RESUME] Reusing synthesized voiceover audio from previous attempt.")
+        else:
+            print("@STATUS: Generating Voice")
+            print("@PROGRESS: 45")
+            print(f"[LOG] Starting text-to-speech audio synthesis (Language: {language})...")
+            piper_tts.generate_audio(script_text, voice_path, language)
+            checkpoint["has_voice"] = True
+            save_checkpoint(checkpoint_file, checkpoint)
+
         with wave.open(voice_path, "rb") as wf:
             audio_duration = wf.getnframes() / float(wf.getframerate())
         print(f"@DURATION: {audio_duration}")
-        print(f"[LOG] Voiceover narration synthesized successfully. Duration: {audio_duration:.2f} seconds.")
+        print(f"[LOG] Voiceover narration validated. Duration: {audio_duration:.2f} seconds.")
 
-        print("@STATUS: Generating Subtitles")
-        print("@PROGRESS: 60")
-        print("[LOG] Transcribing audio with Faster-Whisper to generate subtitles and timestamps...")
-        audio_words = whisper.transcribe_and_generate_srt(voice_path, srt_path)
-        print("[LOG] Subtitles SRT file generated.")
+        # ======================================================================
+        # STAGE 4: SUBTITLES & WORD TIMESTAMPS (Faster-Whisper)
+        # ======================================================================
+        audio_words = None
+        srt_ready = os.path.exists(srt_path) and os.path.getsize(srt_path) > 20
+        words_ready = os.path.exists(words_path) and os.path.getsize(words_path) > 20
+
+        if srt_ready and words_ready:
+            try:
+                with open(words_path, "r", encoding="utf-8") as f:
+                    audio_words = json.load(f)
+                print("@STATUS: Generating Subtitles")
+                print("@PROGRESS: 60")
+                print("[LOG] [CHECKPOINT RESUME] Reusing existing Faster-Whisper subtitles and word timestamps.")
+            except Exception as e:
+                print(f"[LOG] Warning reading words checkpoint: {e}")
+                audio_words = None
+
+        if audio_words is None:
+            print("@STATUS: Generating Subtitles")
+            print("@PROGRESS: 60")
+            print("[LOG] Transcribing audio with Faster-Whisper to generate subtitles and timestamps...")
+            audio_words = whisper.transcribe_and_generate_srt(voice_path, srt_path)
+            with open(words_path, "w", encoding="utf-8") as f:
+                json.dump(audio_words, f, indent=2)
+            checkpoint["has_subtitles"] = True
+            save_checkpoint(checkpoint_file, checkpoint)
+            print("[LOG] Subtitles SRT and word timestamps generated.")
+
+        # ======================================================================
+        # STAGE 5: TIMELINE ALIGNMENT & CLIP FOOTAGE
+        # ======================================================================
+        timeline = None
+        if os.path.exists(timeline_path) and os.path.getsize(timeline_path) > 10:
+            try:
+                with open(timeline_path, "r", encoding="utf-8") as f:
+                    timeline = json.load(f)
+                print("[LOG] [CHECKPOINT RESUME] Reusing existing synchronized scene timeline.")
+            except Exception as e:
+                print(f"[LOG] Warning reading timeline checkpoint: {e}")
+                timeline = None
+
+        if not timeline:
+            print("@STATUS: Downloading Clips")
+            print("@PROGRESS: 70")
+            print("[LOG] Aligning scene plan to audio word timestamps...")
+            timeline = movie.match_scenes_to_audio(scenes, audio_words, audio_duration)
+            with open(timeline_path, "w", encoding="utf-8") as f:
+                json.dump(timeline, f, indent=2)
+            checkpoint["has_timeline"] = True
+            save_checkpoint(checkpoint_file, checkpoint)
+            print("[LOG] Matched timeline created and saved.")
 
         print("@STATUS: Downloading Clips")
         print("@PROGRESS: 70")
-        print("[LOG] Aligning scene plan to audio word timestamps...")
-        timeline = movie.match_scenes_to_audio(scenes, audio_words, audio_duration)
-        print("[LOG] Matched timeline created.")
-        
-        print(f"[LOG] Storing clips in {clips_dir}")
-        
+        print(f"[LOG] Storing clips in {clips_dir} (download_video skips previously downloaded clips)")
+
+        # ======================================================================
+        # STAGE 6: RENDERING & MOVIEPY COMPILATION
+        # ======================================================================
         print("@STATUS: Rendering")
         print("@PROGRESS: 85")
         print("[LOG] Launching MoviePy editor to compile final video overlaying voice, subtitles, and music...")
@@ -158,9 +283,9 @@ def main():
         print("[LOG] Extracting video thumbnail frame...")
         movie.generate_thumbnail(output_video_path, output_thumbnail_path)
 
-        print("[LOG] Cleaning up temporary rendering files...")
+        # Clean scratch folder only upon 100% successful completion
+        print("[LOG] Cleaning up scratch rendering files...")
         try:
-            import shutil
             shutil.rmtree(scratch_dir)
         except Exception as e:
             print(f"[LOG] Warning: Failed to clean up temp scratch folder: {e}")
@@ -175,6 +300,7 @@ def main():
         print("@STATUS: Failed")
         print("[LOG] Generating Stack Trace:")
         traceback.print_exc()
+        print(f"[LOG] [CHECKPOINT PRESERVED] Temporary assets preserved in {scratch_dir}. Clicking 'Retry Pipeline' will resume from this point.")
         sys.exit(1)
 
 

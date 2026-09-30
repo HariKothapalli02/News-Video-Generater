@@ -7,7 +7,8 @@ import {
   Clock,
   Radio,
   FileCode,
-  Sliders
+  Sliders,
+  RotateCcw
 } from "lucide-react";
 import ProgressBar from "../components/ProgressBar";
 
@@ -17,6 +18,7 @@ export default function Generate() {
     stats,
     generateVideo,
     stopGeneration,
+    retryVideo,
     fetchActiveJob,
     fetchStats,
     connectSocket,
@@ -271,7 +273,7 @@ export default function Generate() {
               </div>
             )}
 
-            {!activeJob ? (
+            {!activeJob || activeJob.status === "Completed" ? (
               <button
                 type="submit"
                 className="w-full py-3 bg-white hover:bg-zinc-200 active:bg-zinc-300 text-black text-xs font-bold font-mono uppercase tracking-wider rounded-none border border-white transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-white/5"
@@ -279,6 +281,24 @@ export default function Generate() {
                 <Play className="w-3.5 h-3.5 fill-current" />
                 <span>Launch Video Generation</span>
               </button>
+            ) : activeJob.status === "Failed" || activeJob.status === "Stopped" ? (
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => retryVideo(activeJob.id || activeJob._id)}
+                  className="w-full py-3 bg-white hover:bg-zinc-200 text-black text-xs font-bold font-mono uppercase tracking-wider rounded-none border border-white transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-white/5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Resume & Retry Pipeline</span>
+                </button>
+                <button
+                  type="submit"
+                  className="w-full py-2 bg-transparent hover:bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800 text-[11px] font-mono uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Play className="w-3 h-3 fill-current" />
+                  <span>Start Fresh Generation</span>
+                </button>
+              </div>
             ) : (
               <button
                 type="button"

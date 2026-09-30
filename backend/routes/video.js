@@ -242,9 +242,9 @@ router.post("/retry/:id", auth, async (req, res) => {
       return res.status(404).json({ msg: "Video not found." });
     }
 
+    const isResume = !!(video.logs && video.logs.length > 50);
     video.status = "Pending";
-    video.progress = 0;
-    video.logs = "Retrying enqueued job. Clearing states...";
+    video.logs = (video.logs || "") + `\n[SYSTEM] Resuming pipeline from last checkpoint for job ${video._id}...\n`;
     await video.save();
 
     const io = req.app.get("io");

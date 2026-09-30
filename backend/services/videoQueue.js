@@ -32,11 +32,16 @@ class VideoQueue {
 
     const jobId = videoDoc._id.toString();
     this.currentJobId = jobId;
-    this.logsBuffer = `[SYSTEM] Starting job: ${videoDoc.title}\n[SYSTEM] Subject: ${videoDoc.subject}\n[SYSTEM] Language: ${videoDoc.language}\n`;
+    const isResume = videoDoc.logs && videoDoc.logs.includes("[SYSTEM] Resuming pipeline");
+    if (isResume) {
+      this.logsBuffer = videoDoc.logs;
+    } else {
+      this.logsBuffer = `[SYSTEM] Starting job: ${videoDoc.title}\n[SYSTEM] Subject: ${videoDoc.subject}\n[SYSTEM] Language: ${videoDoc.language}\n`;
+      videoDoc.progress = 0;
+    }
 
     // Update database status
     videoDoc.status = "Pending";
-    videoDoc.progress = 0;
     videoDoc.logs = this.logsBuffer;
     await videoDoc.save();
     this.broadcastUpdate(videoDoc);
