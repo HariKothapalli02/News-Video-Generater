@@ -111,6 +111,10 @@ const VideoSchema = new mongoose.Schema({
     type: String,
     default: ""
   },
+  isAutomated: {
+    type: Boolean,
+    default: false
+  },
   shorts: [
     {
       factIndex: { type: Number },

@@ -585,6 +585,32 @@ router.get("/download/:id/short/:shortIndex", async (req, res) => {
   } catch (err) {
     res.status(500).send("Server error occurred initiating download.");
   }
+// @route   GET /api/scheduler/status
+// @desc    Get automated daily scheduler status and upcoming rotation
+// @access  Private
+router.get("/scheduler/status", auth, async (req, res) => {
+  try {
+    const { getSchedulerStatus, getNextTopic } = require("../services/scheduler");
+    const status = getSchedulerStatus();
+    const nextTopic = await getNextTopic();
+    res.json({ ...status, nextTopic });
+  } catch (err) {
+    res.status(500).json({ msg: "Failed to read scheduler status" });
+  }
+});
+
+// @route   POST /api/scheduler/trigger
+// @desc    Manually trigger the next scheduled rotation run immediately
+// @access  Private
+router.post("/scheduler/trigger", auth, async (req, res) => {
+  try {
+    const { triggerDailyGeneration } = require("../services/scheduler");
+    const io = req.app.get("io");
+    const result = await triggerDailyGeneration(io, true);
+    res.json({ msg: "Manual scheduler trigger executed", result });
+  } catch (err) {
+    res.status(500).json({ msg: "Failed to trigger scheduled run", error: err.message });
+  }
 });
 
 module.exports = router;

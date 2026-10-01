@@ -62,4 +62,8 @@ server.listen(PORT, () => {
   console.log(`ByteWire API server running on port ${PORT}`);
   console.log(`Videos served at http://localhost:${PORT}/videos`);
   console.log(`Thumbnails served at http://localhost:${PORT}/thumbnails`);
+  
+  // Initialize automated 6:00 AM daily video scheduler
+  const { initScheduler } = require("./services/scheduler");
+  initScheduler(app);
 });
