@@ -88,13 +88,14 @@ def detect_fact_timestamps(facts, audio_words, total_duration, intro_offset=0.0)
     def clean(w):
         return re.sub(r"[^a-zA-Z0-9\u0900-\u097F\u0C00-\u0C7F]", "", str(w).lower()).strip()
 
-    fact_starts = []
+    count = len(facts)
+    fact_starts = [None] * count
 
     if audio_words and len(audio_words) > 20:
         words_list = audio_words
         w_len = len(words_list)
 
-        for fact in facts:
+        for idx, fact in enumerate(facts):
             f_idx = fact["factIndex"]
             # Look for "fact <idx>" or first distinct words of the title
             target_words = [clean(w) for w in fact["title"].split() if len(clean(w)) > 2][:4]
@@ -119,11 +120,10 @@ def detect_fact_timestamps(facts, audio_words, total_duration, intro_offset=0.0)
                         matched_time = words_list[i]["start"]
                         break
 
-            fact_starts.append(matched_time)
+            fact_starts[idx] = matched_time
 
     # Validate and fill missing timestamps with proportional interpolation
     usable_duration = max(10.0, total_duration - intro_offset)
-    count = len(facts)
     proportional_step = usable_duration / (count + 1)  # reserve space for intro/outro
 
     for idx in range(count):

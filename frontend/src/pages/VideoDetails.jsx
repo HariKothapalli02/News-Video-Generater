@@ -14,7 +14,8 @@ import {
   Tag,
   Share2,
   Film,
-  Play
+  Play,
+  Hash
 } from "lucide-react";
 import { useVideoStore } from "../store/videoStore";
 import Loader from "../components/Loader";
