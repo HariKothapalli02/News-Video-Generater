@@ -54,7 +54,7 @@ def main():
     parser.add_argument("--custom-prompt", default="", help="Optional instructions/prompt for scriptwriter")
     parser.add_argument("--video-type", default="tech_news", help="Type of video: tech_news, trending_news, india_general_news, specific_content")
     parser.add_argument("--custom-script", default="", help="Direct script text if video-type is specific_content")
-    parser.add_argument("--generate-shorts", type=str, default="false", help="Extract 10 vertical 9:16 shorts (true/false)")
+    parser.add_argument("--generate-shorts", type=str, default="true", help="Extract 10 vertical 9:16 shorts (true/false)")
     
     args = parser.parse_args()
     

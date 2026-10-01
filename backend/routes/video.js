@@ -84,7 +84,7 @@ router.post("/generate", auth, async (req, res) => {
       useMusic: useMusic !== undefined ? useMusic : true,
       useSubtitles: useSubtitles !== undefined ? useSubtitles : true,
       customPrompt: customPrompt || "",
-      generateShorts: generateShorts === true || generateShorts === "true"
+      generateShorts: generateShorts === undefined ? true : (generateShorts === true || generateShorts === "true")
     });
 
     await newVideo.save();
