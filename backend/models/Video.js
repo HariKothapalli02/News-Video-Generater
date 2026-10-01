@@ -103,6 +103,14 @@ const VideoSchema = new mongoose.Schema({
     tags: [{ type: String }],
     generatedAt: { type: Date }
   },
+  youtubeVideoId: {
+    type: String,
+    default: ""
+  },
+  youtubeUrl: {
+    type: String,
+    default: ""
+  },
   shorts: [
     {
       factIndex: { type: Number },

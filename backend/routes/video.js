@@ -348,6 +348,27 @@ router.post("/restart-service", auth, async (req, res) => {
   }
 });
 
+// @route   PATCH /api/video/:id/youtube
+// @desc    Record YouTube Video ID and URL after successful upload
+// @access  Private
+router.patch("/video/:id/youtube", auth, async (req, res) => {
+  try {
+    const { youtubeVideoId, youtubeUrl } = req.body;
+    const video = await Video.findById(req.params.id);
+    if (!video) {
+      return res.status(404).json({ msg: "Video record not found." });
+    }
+    if (youtubeVideoId) video.youtubeVideoId = youtubeVideoId;
+    if (youtubeUrl || youtubeVideoId) {
+      video.youtubeUrl = youtubeUrl || `https://www.youtube.com/watch?v=${youtubeVideoId}`;
+    }
+    await video.save();
+    return res.json({ msg: "YouTube status updated successfully.", videoId: video._id, youtubeVideoId: video.youtubeVideoId, youtubeUrl: video.youtubeUrl });
+  } catch (err) {
+    return res.status(500).json({ msg: "Server error saving YouTube status." });
+  }
+});
+
 // @route   POST /api/video/:id/generate-shorts
 // @desc    Turn existing completed video into 10 vertical 9:16 Shorts
 // @access  Private
