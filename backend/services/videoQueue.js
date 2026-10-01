@@ -77,10 +77,14 @@ class VideoQueue {
       args.push("--custom-script", videoDoc.customScript);
     }
 
+    if (videoDoc.generateShorts) {
+      args.push("--generate-shorts", "true");
+    }
+
     console.log(`Spawning Python process: ${pythonBin} ${args.join(" ")} in ${pythonCwd}`);
     this.childProcess = spawn(pythonBin, args, {
       cwd: pythonCwd,
-      env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONWARNINGS: "ignore" }
+      env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONWARNINGS: "ignore", PYTHONIOENCODING: "utf-8" }
     });
 
     this.childProcess.stdout.on("data", (data) => {
@@ -172,6 +176,30 @@ class VideoQueue {
           videoDoc.duration = Math.round(duration);
           docChanged = true;
         }
+      } else if (line.startsWith("@FACTS:")) {
+        try {
+          const rawFacts = line.replace("@FACTS:", "").trim();
+          videoDoc.facts = JSON.parse(rawFacts);
+          docChanged = true;
+        } catch (e) {
+          console.error("Failed to parse @FACTS JSON:", e);
+        }
+      } else if (line.startsWith("@METADATA:")) {
+        try {
+          const rawMeta = line.replace("@METADATA:", "").trim();
+          videoDoc.youtubeMetadata = JSON.parse(rawMeta);
+          docChanged = true;
+        } catch (e) {
+          console.error("Failed to parse @METADATA JSON:", e);
+        }
+      } else if (line.startsWith("@SHORTS:")) {
+        try {
+          const rawShorts = line.replace("@SHORTS:", "").trim();
+          videoDoc.shorts = JSON.parse(rawShorts);
+          docChanged = true;
+        } catch (e) {
+          console.error("Failed to parse @SHORTS JSON:", e);
+        }
       } else if (line.startsWith("@ERROR:")) {
         const errorMsg = line.replace("@ERROR:", "").trim();
         this.logsBuffer += `[PYTHON ERROR] ${errorMsg}\n`;
@@ -195,7 +223,10 @@ class VideoQueue {
           progress: videoDoc.progress,
           script: videoDoc.script,
           duration: videoDoc.duration,
-          logs: videoDoc.logs
+          logs: videoDoc.logs,
+          facts: videoDoc.facts,
+          youtubeMetadata: videoDoc.youtubeMetadata,
+          shorts: videoDoc.shorts
         }
       );
       this.broadcastUpdate(videoDoc);
@@ -211,7 +242,10 @@ class VideoQueue {
         progress: videoDoc.progress,
         script: videoDoc.script,
         duration: videoDoc.duration,
-        logs: videoDoc.logs
+        logs: videoDoc.logs,
+        facts: videoDoc.facts,
+        youtubeMetadata: videoDoc.youtubeMetadata,
+        shorts: videoDoc.shorts
       });
     }
   }

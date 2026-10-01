@@ -29,6 +29,7 @@ const VideoSchema = new mongoose.Schema({
       "Generating Subtitles",
       "Downloading Clips",
       "Rendering",
+      "Generating Shorts",
       "Completed",
       "Failed",
       "Stopped"
@@ -63,7 +64,7 @@ const VideoSchema = new mongoose.Schema({
   },
   videoType: {
     type: String,
-    enum: ["tech_news", "trending_news", "specific_content"],
+    enum: ["tech_news", "trending_news", "india_general_news", "specific_content"],
     default: "tech_news"
   },
   customScript: {
@@ -82,6 +83,44 @@ const VideoSchema = new mongoose.Schema({
     type: String,
     default: ""
   },
+  generateShorts: {
+    type: Boolean,
+    default: false
+  },
+  facts: [
+    {
+      factIndex: { type: Number },
+      title: { type: String },
+      description: { type: String },
+      startTime: { type: Number },
+      endTime: { type: Number }
+    }
+  ],
+  youtubeMetadata: {
+    title: { type: String, default: "" },
+    titles: [{ type: String }],
+    description: { type: String, default: "" },
+    tags: [{ type: String }],
+    generatedAt: { type: Date }
+  },
+  shorts: [
+    {
+      factIndex: { type: Number },
+      title: { type: String },
+      factTitle: { type: String },
+      scriptText: { type: String },
+      videoPath: { type: String },
+      thumbnail: { type: String },
+      duration: { type: Number },
+      aspectRatio: { type: String, default: "9:16" },
+      youtubeMetadata: {
+        title: { type: String },
+        description: { type: String },
+        tags: [{ type: String }]
+      },
+      createdAt: { type: Date, default: Date.now }
+    }
+  ],
   createdAt: {
     type: Date,
     default: Date.now

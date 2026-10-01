@@ -60,7 +60,7 @@ const getSystemStats = async () => {
 // @desc    Trigger video script news generation
 // @access  Private
 router.post("/generate", auth, async (req, res) => {
-  const { title, subject, language, useMusic, useSubtitles, customPrompt, videoType, customScript } = req.body;
+  const { title, subject, language, useMusic, useSubtitles, customPrompt, videoType, customScript, generateShorts } = req.body;
 
   if (!title) {
     return res.status(400).json({ msg: "Title is required." });
@@ -83,7 +83,8 @@ router.post("/generate", auth, async (req, res) => {
       customScript: customScript || "",
       useMusic: useMusic !== undefined ? useMusic : true,
       useSubtitles: useSubtitles !== undefined ? useSubtitles : true,
-      customPrompt: customPrompt || ""
+      customPrompt: customPrompt || "",
+      generateShorts: generateShorts === true || generateShorts === "true"
     });
 
     await newVideo.save();
@@ -347,4 +348,223 @@ router.post("/restart-service", auth, async (req, res) => {
   }
 });
 
+// @route   POST /api/video/:id/generate-shorts
+// @desc    Turn existing completed video into 10 vertical 9:16 Shorts
+// @access  Private
+router.post("/video/:id/generate-shorts", auth, async (req, res) => {
+  try {
+    const video = await Video.findById(req.params.id);
+    if (!video) {
+      return res.status(404).json({ msg: "Video record not found." });
+    }
+
+    if (video.status !== "Completed") {
+      return res.status(400).json({ msg: "Video must be in 'Completed' status to extract shorts." });
+    }
+
+    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "videos");
+    const videoFilePath = path.join(videoStorage, `${video._id}.mp4`);
+
+    if (!fs.existsSync(videoFilePath)) {
+      return res.status(404).json({ msg: "Physical video file not found on disk." });
+    }
+
+    const pythonScript = path.join(__dirname, "..", "..", "python-service", "shorts.py");
+    const pythonCwd = path.join(__dirname, "..", "..", "python-service");
+
+    let pythonBin = process.platform === "win32" ? "python" : "python3";
+    const venvBinLinux = path.join(pythonCwd, "venv", "bin", "python3");
+    const venvBinWin = path.join(pythonCwd, "venv", "Scripts", "python.exe");
+
+    if (fs.existsSync(venvBinLinux)) {
+      pythonBin = venvBinLinux;
+    } else if (fs.existsSync(venvBinWin)) {
+      pythonBin = venvBinWin;
+    } else if (process.env.PYTHON_PATH) {
+      pythonBin = process.env.PYTHON_PATH;
+    }
+
+    const tempScriptPath = path.join(pythonCwd, `temp_script_${video._id}.txt`);
+    fs.writeFileSync(tempScriptPath, video.script || "", "utf-8");
+
+    const args = [
+      "-u",
+      pythonScript,
+      "--job-id", String(video._id),
+      "--video-path", videoFilePath,
+      "--script-path", tempScriptPath,
+      "--subject", video.subject || "news",
+      "--language", video.language || "english"
+    ];
+
+    console.log(`[Standalone Shorts] Spawning: ${pythonBin} ${args.join(" ")}`);
+    const { spawn } = require("child_process");
+    const child = spawn(pythonBin, args, {
+      cwd: pythonCwd,
+      env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8" }
+    });
+
+    let stdoutData = "";
+
+    child.stdout.on("data", (data) => {
+      stdoutData += data.toString();
+      console.log(`[Shorts Subprocess] ${data.toString().trim()}`);
+    });
+
+    child.stderr.on("data", (data) => {
+      console.error(`[Shorts Subprocess stderr] ${data.toString().trim()}`);
+    });
+
+    child.on("close", async (code) => {
+      if (fs.existsSync(tempScriptPath)) {
+        try { fs.unlinkSync(tempScriptPath); } catch (_) {}
+      }
+
+      if (code === 0) {
+        const startMarker = "@SHORTS_RESULT_START@";
+        const endMarker = "@SHORTS_RESULT_END@";
+        const startIdx = stdoutData.indexOf(startMarker);
+        const endIdx = stdoutData.indexOf(endMarker);
+
+        if (startIdx !== -1 && endIdx !== -1) {
+          try {
+            const rawJson = stdoutData.substring(startIdx + startMarker.length, endIdx).trim();
+            const parsed = JSON.parse(rawJson);
+
+            video.facts = parsed.facts || video.facts;
+            video.shorts = parsed.shorts || [];
+            video.generateShorts = true;
+            await video.save();
+
+            const io = req.app.get("io");
+            if (io) {
+              io.emit("job_update", {
+                id: video._id,
+                title: video.title,
+                status: video.status,
+                progress: video.progress,
+                facts: video.facts,
+                shorts: video.shorts,
+                youtubeMetadata: video.youtubeMetadata
+              });
+            }
+            console.log(`[Standalone Shorts] Done! Saved ${video.shorts.length} shorts for video ${video._id}`);
+          } catch (e) {
+            console.error("Failed to parse shorts JSON output:", e);
+          }
+        }
+      } else {
+        console.error(`[Standalone Shorts] Process failed with exit code: ${code}`);
+      }
+    });
+
+    return res.json({ msg: "10 Shorts generation pipeline started in background.", status: "processing" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ msg: "Server error initiating shorts extraction." });
+  }
+});
+
+// @route   POST /api/video/:id/generate-metadata
+// @desc    Generate or refresh full YouTube metadata (Title, Description, Tags) in 1 API request
+// @access  Private
+router.post("/video/:id/generate-metadata", auth, async (req, res) => {
+  try {
+    const video = await Video.findById(req.params.id);
+    if (!video) {
+      return res.status(404).json({ msg: "Video record not found." });
+    }
+
+    const pythonCwd = path.join(__dirname, "..", "..", "python-service");
+    let pythonBin = process.platform === "win32" ? "python" : "python3";
+    const venvBinLinux = path.join(pythonCwd, "venv", "bin", "python3");
+    const venvBinWin = path.join(pythonCwd, "venv", "Scripts", "python.exe");
+    if (fs.existsSync(venvBinLinux)) pythonBin = venvBinLinux;
+    else if (fs.existsSync(venvBinWin)) pythonBin = venvBinWin;
+
+    const tempJsonPath = path.join(pythonCwd, `temp_meta_${video._id}.json`);
+    const payload = {
+      subject: video.subject || "news",
+      script: video.script || "",
+      facts: video.facts || [],
+      language: video.language || "english"
+    };
+    fs.writeFileSync(tempJsonPath, JSON.stringify(payload), "utf-8");
+
+    const pyCode = `
+import json, gemini, shorts
+with open(r'${tempJsonPath}', 'r', encoding='utf-8') as f:
+    d = json.load(f)
+facts = d.get('facts', [])
+if not facts:
+    facts = shorts.parse_facts_from_script(d.get('script', ''))
+meta = gemini.generate_video_metadata(d.get('subject', 'news'), d.get('script', ''), facts, d.get('language', 'english'))
+print("@META_RESULT@" + json.dumps(meta) + "@META_RESULT@")
+`;
+
+    const { spawn } = require("child_process");
+    const child = spawn(pythonBin, ["-c", pyCode], { cwd: pythonCwd });
+
+    let stdout = "";
+    child.stdout.on("data", (d) => stdout += d.toString());
+    child.on("close", async (code) => {
+      if (fs.existsSync(tempJsonPath)) {
+        try { fs.unlinkSync(tempJsonPath); } catch (_) {}
+      }
+
+      if (code === 0 && stdout.includes("@META_RESULT@")) {
+        const parts = stdout.split("@META_RESULT@");
+        if (parts.length >= 3) {
+          try {
+            const meta = JSON.parse(parts[1]);
+            video.youtubeMetadata = { ...meta, generatedAt: new Date() };
+            await video.save();
+
+            const io = req.app.get("io");
+            if (io) {
+              io.emit("job_update", {
+                id: video._id,
+                youtubeMetadata: video.youtubeMetadata
+              });
+            }
+            return res.json({ msg: "YouTube metadata generated successfully.", youtubeMetadata: video.youtubeMetadata });
+          } catch (e) {
+            console.error("JSON parse error for metadata:", e);
+          }
+        }
+      }
+      res.status(500).json({ msg: "Failed to generate video metadata via Gemini." });
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ msg: "Server error generating video metadata." });
+  }
+});
+
+// @route   GET /api/download/:id/short/:shortIndex
+// @desc    Download an individual 9:16 vertical short
+// @access  Public
+router.get("/download/:id/short/:shortIndex", async (req, res) => {
+  try {
+    const video = await Video.findById(req.params.id);
+    if (!video) {
+      return res.status(404).send("Video record not found.");
+    }
+
+    const shortIdx = parseInt(req.params.shortIndex, 10);
+    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "videos");
+    const filePath = path.resolve(path.join(videoStorage, "shorts", `${req.params.id}_short_${shortIdx}.mp4`));
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send("Short MP4 file not found in storage directory.");
+    }
+
+    const safeTitle = `${video.title.replace(/[^a-zA-Z0-9]/g, "_")}_Short_${shortIdx}`;
+    res.download(filePath, `${safeTitle}.mp4`);
+  } catch (err) {
+    res.status(500).send("Server error occurred initiating download.");
+  }
+});
+
 module.exports = router;
+

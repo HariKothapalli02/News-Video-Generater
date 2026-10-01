@@ -177,6 +177,28 @@ export const useVideoStore = create((set, get) => {
       }
     },
 
+    generateShorts: async (id) => {
+      try {
+        const res = await axios.post(`${API_URL}/video/${id}/generate-shorts`, {}, get().getHeaders());
+        return res.data;
+      } catch (err) {
+        const msg = err.response?.data?.msg || "Failed to trigger shorts generation.";
+        set({ error: msg });
+        return null;
+      }
+    },
+
+    generateMetadata: async (id) => {
+      try {
+        const res = await axios.post(`${API_URL}/video/${id}/generate-metadata`, {}, get().getHeaders());
+        return res.data;
+      } catch (err) {
+        const msg = err.response?.data?.msg || "Failed to generate metadata.";
+        set({ error: msg });
+        return null;
+      }
+    },
+
     clearActiveJob: () => set({ activeJob: null }),
     clearError: () => set({ error: null })
   };

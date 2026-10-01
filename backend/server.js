@@ -3,6 +3,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const path = require("path");
+const fs = require("fs");
 const connectDB = require("./config/db");
 
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
@@ -18,6 +19,13 @@ app.use(express.urlencoded({ extended: false }));
 
 const videoDir = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "videos");
 const thumbDir = process.env.THUMBNAIL_STORAGE_DIR || path.join(__dirname, "thumbnails");
+
+if (!fs.existsSync(path.join(videoDir, "shorts"))) {
+  fs.mkdirSync(path.join(videoDir, "shorts"), { recursive: true });
+}
+if (!fs.existsSync(path.join(thumbDir, "shorts"))) {
+  fs.mkdirSync(path.join(thumbDir, "shorts"), { recursive: true });
+}
 
 app.use("/videos", express.static(videoDir));
 app.use("/thumbnails", express.static(thumbDir));

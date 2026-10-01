@@ -19,6 +19,7 @@ import gemini
 import piper_tts
 import whisper
 import movie
+import shorts
 
 VIDEO_DIR = os.getenv("VIDEO_STORAGE_DIR", "../videos")
 THUMBNAIL_DIR = os.getenv("THUMBNAIL_STORAGE_DIR", "../thumbnails")
@@ -51,8 +52,9 @@ def main():
     parser.add_argument("--use-music", type=str, default="true", help="Toggle background music (true/false)")
     parser.add_argument("--use-subtitles", type=str, default="true", help="Toggle subtitle burn-in (true/false)")
     parser.add_argument("--custom-prompt", default="", help="Optional instructions/prompt for scriptwriter")
-    parser.add_argument("--video-type", default="tech_news", help="Type of video: tech_news, trending_news, specific_content")
+    parser.add_argument("--video-type", default="tech_news", help="Type of video: tech_news, trending_news, india_general_news, specific_content")
     parser.add_argument("--custom-script", default="", help="Direct script text if video-type is specific_content")
+    parser.add_argument("--generate-shorts", type=str, default="false", help="Extract 10 vertical 9:16 shorts (true/false)")
     
     args = parser.parse_args()
     
@@ -64,6 +66,7 @@ def main():
     custom_prompt = args.custom_prompt
     video_type = args.video_type
     custom_script = args.custom_script
+    generate_shorts = args.generate_shorts.lower() == "true"
 
     os.makedirs(VIDEO_DIR, exist_ok=True)
     os.makedirs(THUMBNAIL_DIR, exist_ok=True)
@@ -114,16 +117,18 @@ def main():
             else:
                 print("@STATUS: Collecting RSS", flush=True)
                 print("@PROGRESS: 10", flush=True)
-                print("[LOG] Querying verified high-tier RSS news feeds in parallel...", flush=True)
-                news_items = rss.collect_news(video_type)
-                if not news_items:
+                print(f"[LOG] Querying verified high-tier RSS news feeds for '{video_type}'...", flush=True)
+                candidate_items = rss.collect_news(video_type)
+                if not candidate_items:
                     raise ValueError("No news stories collected from RSS feeds.")
-                print(f"[LOG] Scraped and scored {len(news_items)} top news stories.", flush=True)
+                print(f"[LOG] Scraped {len(candidate_items)} fresh unique news stories across verified feeds.", flush=True)
 
                 print("@STATUS: Selecting News", flush=True)
                 print("@PROGRESS: 20", flush=True)
-                print(f"[LOG] Running Gemini AI ({gemini.GEMINI_MODEL}) to select top 10 stories and write script...", flush=True)
-                script_text = gemini.generate_script(news_items, subject, language, custom_prompt)
+                print("[LOG] Evaluating candidate stories with Gemini AI for Top 10 High-CTR & audience engagement...", flush=True)
+                top_10_stories = gemini.select_top_10_news(candidate_items, subject, video_type)
+                print(f"[LOG] Selected {len(top_10_stories)} top stories. Generating broadcast script...", flush=True)
+                script_text = gemini.generate_script(top_10_stories, subject, language, custom_prompt)
                 print("[LOG] News script written successfully by Gemini AI.", flush=True)
 
             with open(script_path, "w", encoding="utf-8") as f:
@@ -285,6 +290,49 @@ def main():
         print("[LOG] Extracting video thumbnail frame...")
         intro_offset = movie.get_video_duration(intro_path) if (intro_path and os.path.exists(intro_path)) else 0.0
         movie.generate_thumbnail(output_video_path, output_thumbnail_path, timestamp_sec=max(1.0, intro_offset + 3.0))
+
+        # ======================================================================
+        # STAGE 7: YOUTUBE METADATA & 9:16 SHORTS EXTRACTION
+        # ======================================================================
+        print("[LOG] Parsing fact chapters and detecting timestamps...")
+        facts_parsed = shorts.parse_facts_from_script(script_text)
+        fact_segments = shorts.detect_fact_timestamps(facts_parsed, audio_words, audio_duration + intro_offset, intro_offset)
+
+        # Output fact segments for backend storage
+        safe_facts_json = json.dumps(fact_segments).replace("\n", " ")
+        print(f"@FACTS: {safe_facts_json}", flush=True)
+
+        # Generate Full Video YouTube Metadata in 1 single Gemini API call
+        print("@STATUS: Generating Metadata", flush=True)
+        try:
+            yt_meta = gemini.generate_video_metadata(subject, script_text, fact_segments, language)
+            safe_meta_json = json.dumps(yt_meta).replace("\n", " ")
+            print(f"@METADATA: {safe_meta_json}", flush=True)
+        except Exception as e:
+            print(f"[LOG] Warning generating YouTube metadata: {e}", flush=True)
+
+        # Extract 10 vertical 9:16 shorts if requested
+        if generate_shorts:
+            print("@STATUS: Generating Shorts", flush=True)
+            print("@PROGRESS: 92", flush=True)
+            print("[LOG] Extracting 10 vertical 9:16 Shorts from video and generating dedicated metadata...", flush=True)
+            try:
+                shorts_result = shorts.extract_all_shorts(
+                    job_id=job_id,
+                    video_path=output_video_path,
+                    script_text=script_text,
+                    audio_words=audio_words,
+                    intro_offset=intro_offset,
+                    subject=subject,
+                    language=language,
+                    video_storage_dir=VIDEO_DIR,
+                    thumbnail_storage_dir=THUMBNAIL_DIR
+                )
+                safe_shorts_json = json.dumps(shorts_result.get("shorts", [])).replace("\n", " ")
+                print(f"@SHORTS: {safe_shorts_json}", flush=True)
+                print(f"[LOG] Sliced {len(shorts_result.get('shorts', []))} vertical 9:16 shorts successfully.", flush=True)
+            except Exception as e:
+                print(f"[LOG] Warning generating shorts: {e}", flush=True)
 
         # Clean scratch folder only upon 100% successful completion
         print("[LOG] Cleaning up scratch rendering files...")

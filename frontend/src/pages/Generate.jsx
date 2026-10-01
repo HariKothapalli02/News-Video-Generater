@@ -34,6 +34,7 @@ export default function Generate() {
   const [useSubtitles, setUseSubtitles] = useState(true);
   const [videoType, setVideoType] = useState("tech_news");
   const [customScript, setCustomScript] = useState("");
+  const [generateShorts, setGenerateShorts] = useState(false);
 
   const logsEndRef = useRef(null);
 
@@ -65,7 +66,8 @@ export default function Generate() {
       useSubtitles,
       customPrompt: videoType === "specific_content" ? "" : customPrompt,
       videoType,
-      customScript: videoType === "specific_content" ? customScript : ""
+      customScript: videoType === "specific_content" ? customScript : "",
+      generateShorts
     });
 
     if (success) {
@@ -163,8 +165,9 @@ export default function Generate() {
               onChange={(e) => setVideoType(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-black border border-zinc-800 rounded-none text-xs text-white focus:outline-none focus:border-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer font-mono"
             >
-              <option value="tech_news">Technology News (Global RSS Feeds)</option>
-              <option value="trending_news">Trending News (India National Feeds)</option>
+              <option value="tech_news">Technology & AI News (Global & India Top Tech Feeds)</option>
+              <option value="india_general_news">India General News (Politics, National Issues, Breaking, Courts)</option>
+              <option value="trending_news">Trending News (India & World Viral Stories)</option>
               <option value="specific_content">Specific Content (Direct Custom Script)</option>
             </select>
           </div>
@@ -261,6 +264,28 @@ export default function Generate() {
                 checked={useSubtitles}
                 onChange={(e) => setUseSubtitles(e.target.checked)}
                 className="w-4 h-4 rounded-none accent-white bg-black border-zinc-700 cursor-pointer"
+              />
+            </label>
+          </div>
+
+          {/* 10 Vertical Shorts (9:16) Pipeline Option */}
+          <div className="border-t border-zinc-800 pt-3">
+            <label className="flex items-start justify-between p-3 bg-black rounded-none border border-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer select-none">
+              <div className="space-y-1 pr-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-mono font-bold text-white uppercase">Turn into 10 Shorts (9:16)</span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 bg-white text-black font-bold uppercase tracking-wider">1080x1920</span>
+                </div>
+                <p className="text-[10px] text-zinc-400 font-mono leading-relaxed">
+                  Automatically slices the video into 10 vertical 9:16 Shorts (1 per topic) with individual YouTube Shorts titles, descriptions, and tags.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                disabled={!!activeJob}
+                checked={generateShorts}
+                onChange={(e) => setGenerateShorts(e.target.checked)}
+                className="w-4 h-4 rounded-none accent-white bg-black border-zinc-700 cursor-pointer mt-0.5 shrink-0"
               />
             </label>
           </div>
