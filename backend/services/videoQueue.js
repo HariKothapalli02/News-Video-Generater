@@ -1,6 +1,8 @@
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+const https = require("https");
+const http = require("http");
 const Video = require("../models/Video");
 
 class VideoQueue {
@@ -118,6 +120,9 @@ class VideoQueue {
         latestDoc.logs = this.logsBuffer;
         await latestDoc.save();
         this.broadcastUpdate(latestDoc);
+
+        // Notify n8n webhook instantly so upload starts immediately (no polling delay)
+        this.notifyN8nWebhook(latestDoc);
       } else {
         latestDoc.status = "Failed";
         latestDoc.progress = 0;
@@ -270,6 +275,70 @@ class VideoQueue {
   clearState() {
     this.currentJobId = null;
     this.childProcess = null;
+  }
+
+  /**
+   * Fires an instant POST to the n8n webhook URL when a video completes.
+   * N8N_WEBHOOK_URL is read from .env dynamically so you can change it without restart.
+   * Example .env value:
+   *   N8N_WEBHOOK_URL=https://your-n8n.com/webhook/bytewire-video-ready
+   */
+  notifyN8nWebhook(videoDoc) {
+    const webhookUrl = process.env.N8N_WEBHOOK_URL;
+    if (!webhookUrl) {
+      // No webhook configured — silent skip
+      return;
+    }
+
+    const payload = JSON.stringify({
+      event: "video.completed",
+      videoId: videoDoc._id.toString(),
+      title: videoDoc.title,
+      subject: videoDoc.subject,
+      status: videoDoc.status,
+      hasShorts: !!(videoDoc.shorts && videoDoc.shorts.length > 0),
+      shortsCount: videoDoc.shorts ? videoDoc.shorts.length : 0,
+      hasMetadata: !!(videoDoc.youtubeMetadata && videoDoc.youtubeMetadata.title),
+      videoUrl: `${process.env.APP_URL || "https://ytvideo.harikothapalli.space"}/videos/${videoDoc._id}.mp4`,
+      thumbnailUrl: `${process.env.APP_URL || "https://ytvideo.harikothapalli.space"}/thumbnails/${videoDoc._id}.png`,
+      timestamp: new Date().toISOString()
+    });
+
+    try {
+      const parsedUrl = new URL(webhookUrl);
+      const transport = parsedUrl.protocol === "https:" ? https : http;
+
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || (parsedUrl.protocol === "https:" ? 443 : 80),
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload),
+          "User-Agent": "ByteWire-AI/1.0"
+        },
+        timeout: 10000
+      };
+
+      const req = transport.request(options, (res) => {
+        console.log(`[n8n Webhook] Notified n8n of completed video '${videoDoc.title}' → HTTP ${res.statusCode}`);
+      });
+
+      req.on("error", (err) => {
+        console.warn(`[n8n Webhook] Notification failed (non-critical): ${err.message}`);
+      });
+
+      req.on("timeout", () => {
+        console.warn("[n8n Webhook] Request timed out after 10s (non-critical).");
+        req.destroy();
+      });
+
+      req.write(payload);
+      req.end();
+    } catch (err) {
+      console.warn(`[n8n Webhook] Invalid webhook URL or request error: ${err.message}`);
+    }
   }
 }
 

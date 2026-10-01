@@ -1,0 +1,291 @@
+{
+  "name": "ByteWire - Auto YouTube Uploader (Full Video + 10 Shorts)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 6 }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger (Every 6h)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "notes": "Checks for new completed videos every 6 hours."
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bytewire-video-ready",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger (ByteWire Push)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 460],
+      "notes": "ByteWire POSTs {videoId} here on completion."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ytvideo.harikothapalli.space/api/login",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "username",
+              "value": "admin"
+            },
+            {
+              "name": "password",
+              "value": "admin123"
+            }
+          ]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "login-bytewire",
+      "name": "1. Login to ByteWire API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://ytvideo.harikothapalli.space/api/history",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bearer {{ $json.token }}" }]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "get-video-history",
+      "name": "2. Get Video History",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const loginData = $(\"1. Login to ByteWire API\").first().json;\nconst token = loginData.token;\nconst allVideos = $input.first().json;\nconst videoList = Array.isArray(allVideos) ? allVideos : [];\nconst pendingUploads = videoList.filter(v => v.status === \"Completed\" && v.youtubeMetadata && v.youtubeMetadata.title && !v.youtubeVideoId);\nif (pendingUploads.length === 0) { return [{ json: { skip: true, message: \"No new completed videos to upload.\" } }]; }\nconst video = pendingUploads[0];\nreturn [{ json: { skip: false, videoId: video._id, token: token, title: video.title, subject: video.subject, status: video.status, youtubeMetadata: video.youtubeMetadata, shorts: video.shorts || [], shortsCount: (video.shorts || []).length, videoUrl: \"https://ytvideo.harikothapalli.space/videos/\" + video._id + \".mp4\", thumbnailUrl: \"https://ytvideo.harikothapalli.space/thumbnails/\" + video._id + \".png\" } }];"
+      },
+      "id": "filter-pending-videos",
+      "name": "3. Find Pending Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "id": "check-skip", "leftValue": "={{ $json.skip }}", "rightValue": false, "operator": { "type": "boolean", "operation": "equals" } }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-has-video",
+      "name": "4. Has Video to Upload?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1140, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://ytvideo.harikothapalli.space/api/video/{{ $json.videoId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bearer {{ $json.token }}" }]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "get-video-details",
+      "name": "5. Get Full Video Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1380, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const video = $input.first().json;\nconst meta = video.youtubeMetadata || {};\nconst title = (meta.title || video.title || \"ByteWire AI News\").substring(0, 100);\nconst description = (meta.description || \"Top 10 \" + video.subject + \" news. Subscribe to ByteWire! #news #trending\").substring(0, 5000);\nconst tags = (meta.tags || [\"news\", \"trending\", \"bytewire\"]).slice(0, 15).map(t => String(t).trim()).filter(Boolean);\nconst videoDownloadUrl = \"https://ytvideo.harikothapalli.space/api/download/\" + video._id;\nreturn [{ json: { videoId: video._id, title: title, description: description, tags: tags, categoryId: \"25\", privacyStatus: \"public\", madeForKids: false, videoDownloadUrl: videoDownloadUrl, thumbnailUrl: \"https://ytvideo.harikothapalli.space/thumbnails/\" + video._id + \".png\", shorts: video.shorts || [], shortsCount: (video.shorts || []).length, token: $(\"3. Find Pending Upload\").first().json.token } }];"
+      },
+      "id": "prepare-full-video-data",
+      "name": "6. Prepare Full Video Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 200]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.videoDownloadUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bearer {{ $json.token }}" }]
+        },
+        "options": { "timeout": 600000, "response": { "response": { "responseFormat": "file" } } }
+      },
+      "id": "download-full-video",
+      "name": "7. Download Full Video File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1820, 200]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $(\"6. Prepare Full Video Data\").first().json.title }}",
+        "regionCode": "IN",
+        "categoryId": "={{ $(\"6. Prepare Full Video Data\").first().json.categoryId }}",
+        "description": "={{ $(\"6. Prepare Full Video Data\").first().json.description }}",
+        "privacyStatus": "public",
+        "options": {
+          "tags": "={{ $(\"6. Prepare Full Video Data\").first().json.tags.join(\",\") }}",
+          "madeForKids": false,
+          "notifySubscribers": true,
+          "defaultLanguage": "en",
+          "defaultAudioLanguage": "en",
+          "embeddable": true,
+          "license": "youtube",
+          "publicStatsViewable": true
+        }
+      },
+      "id": "upload-full-video-youtube",
+      "name": "8. Upload Full Video to YouTube",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [2040, 200],
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "youtube-oauth2-credential",
+          "name": "YouTube OAuth2 (ByteWire Channel)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ytResult = $input.first().json;\nconst youtubeVideoId = ytResult.id;\nconst preparedData = $(\"6. Prepare Full Video Data\").first().json;\nconst shorts = preparedData.shorts || [];\nconst shortsWithContext = shorts.map((s, idx) => ({ ...s, parentVideoId: preparedData.videoId, parentYoutubeId: youtubeVideoId, parentYoutubeUrl: \"https://www.youtube.com/watch?v=\" + youtubeVideoId, shortDownloadUrl: \"https://ytvideo.harikothapalli.space/api/download/\" + preparedData.videoId + \"/short/\" + (s.factIndex || (idx + 1)), token: preparedData.token }));\nreturn shortsWithContext.map(s => ({ json: s }));"
+      },
+      "id": "prepare-shorts-list",
+      "name": "9. Prepare Shorts List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2260, 200]
+    },
+    {
+      "parameters": { "batchSize": 1, "options": {} },
+      "id": "split-shorts",
+      "name": "10. Split Shorts (1 at a time)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [2480, 200]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.shortDownloadUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bearer {{ $json.token }}" }]
+        },
+        "options": { "timeout": 300000, "response": { "response": { "responseFormat": "file" } } }
+      },
+      "id": "download-short-video",
+      "name": "11. Download Short Video File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2700, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const shortData = $(\"10. Split Shorts (1 at a time)\").first().json;\nconst ytMeta = shortData.youtubeMetadata || {};\nconst factTitle = shortData.factTitle || shortData.title || \"News Short #\" + shortData.factIndex;\nconst shortTitle = ytMeta.title || (factTitle.substring(0, 50) + \" #Shorts\");\nconst shortDesc = (ytMeta.description || (shortData.scriptText || factTitle) + \"\\n\\n#shorts #youtubeshorts #news #trending #bytewire\").substring(0, 5000);\nconst shortTags = (ytMeta.tags || [\"shorts\", \"news\", \"trending\", \"youtubeshorts\", \"bytewire\"]).slice(0, 15).map(t => String(t).trim()).filter(Boolean);\nconst finalTitle = (shortTitle.includes(\"#Shorts\") || shortTitle.includes(\"#shorts\")) ? shortTitle : (shortTitle.substring(0, 52) + \" #Shorts\");\nreturn [{ json: { ...shortData, uploadTitle: finalTitle.substring(0, 100), uploadDescription: shortDesc, uploadTags: shortTags } }];"
+      },
+      "id": "prepare-short-metadata",
+      "name": "12. Prepare Short Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2920, 200]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $(\"12. Prepare Short Metadata\").first().json.uploadTitle }}",
+        "regionCode": "IN",
+        "categoryId": "25",
+        "description": "={{ $(\"12. Prepare Short Metadata\").first().json.uploadDescription }}",
+        "privacyStatus": "public",
+        "options": {
+          "tags": "={{ $(\"12. Prepare Short Metadata\").first().json.uploadTags.join(\",\") }}",
+          "madeForKids": false,
+          "notifySubscribers": true,
+          "defaultLanguage": "en",
+          "defaultAudioLanguage": "en",
+          "embeddable": true,
+          "license": "youtube",
+          "publicStatsViewable": true
+        }
+      },
+      "id": "upload-short-youtube",
+      "name": "13. Upload Short to YouTube",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [3140, 200],
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "youtube-oauth2-credential",
+          "name": "YouTube OAuth2 (ByteWire Channel)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const uploadResult = $input.first().json;\nconst shortData = $(\"12. Prepare Short Metadata\").first().json;\nconst ytShortId = uploadResult.id;\nreturn [{ json: { factIndex: shortData.factIndex, title: shortData.uploadTitle, youtubeShortId: ytShortId, youtubeShortUrl: \"https://www.youtube.com/shorts/\" + ytShortId, parentVideoId: shortData.parentVideoId, parentYoutubeId: shortData.parentYoutubeId } }];"
+      },
+      "id": "log-short-upload",
+      "name": "14. Log Short Upload Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3360, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allShortResults = $input.all();\nconst summary = { status: \"success\", timestamp: new Date().toISOString(), parentYoutubeId: allShortResults[0]?.json?.parentYoutubeId || \"N/A\", parentYoutubeUrl: allShortResults[0]?.json?.parentYoutubeId ? \"https://www.youtube.com/watch?v=\" + allShortResults[0].json.parentYoutubeId : \"N/A\", shortsUploaded: allShortResults.map(r => ({ factIndex: r.json.factIndex, title: r.json.title, url: r.json.youtubeShortUrl })), totalShortsUploaded: allShortResults.length, message: \"ByteWire Upload Complete: 1 full video + \" + allShortResults.length + \" Shorts published to YouTube!\" };\nreturn [{ json: summary }];"
+      },
+      "id": "final-summary",
+      "name": "15. Final Upload Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3580, 200]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (Every 6h)": { "main": [[{ "node": "1. Login to ByteWire API", "type": "main", "index": 0 }]] },
+    "Webhook Trigger (ByteWire Push)": { "main": [[{ "node": "1. Login to ByteWire API", "type": "main", "index": 0 }]] },
+    "1. Login to ByteWire API": { "main": [[{ "node": "2. Get Video History", "type": "main", "index": 0 }]] },
+    "2. Get Video History": { "main": [[{ "node": "3. Find Pending Upload", "type": "main", "index": 0 }]] },
+    "3. Find Pending Upload": { "main": [[{ "node": "4. Has Video to Upload?", "type": "main", "index": 0 }]] },
+    "4. Has Video to Upload?": { "main": [[{ "node": "5. Get Full Video Details", "type": "main", "index": 0 }], []] },
+    "5. Get Full Video Details": { "main": [[{ "node": "6. Prepare Full Video Data", "type": "main", "index": 0 }]] },
+    "6. Prepare Full Video Data": { "main": [[{ "node": "7. Download Full Video File", "type": "main", "index": 0 }]] },
+    "7. Download Full Video File": { "main": [[{ "node": "8. Upload Full Video to YouTube", "type": "main", "index": 0 }]] },
+    "8. Upload Full Video to YouTube": { "main": [[{ "node": "9. Prepare Shorts List", "type": "main", "index": 0 }]] },
+    "9. Prepare Shorts List": { "main": [[{ "node": "10. Split Shorts (1 at a time)", "type": "main", "index": 0 }]] },
+    "10. Split Shorts (1 at a time)": { "main": [[{ "node": "11. Download Short Video File", "type": "main", "index": 0 }], [{ "node": "15. Final Upload Summary", "type": "main", "index": 0 }]] },
+    "11. Download Short Video File": { "main": [[{ "node": "12. Prepare Short Metadata", "type": "main", "index": 0 }]] },
+    "12. Prepare Short Metadata": { "main": [[{ "node": "13. Upload Short to YouTube", "type": "main", "index": 0 }]] },
+    "13. Upload Short to YouTube": { "main": [[{ "node": "14. Log Short Upload Result", "type": "main", "index": 0 }]] },
+    "14. Log Short Upload Result": { "main": [[{ "node": "10. Split Shorts (1 at a time)", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
+  "staticData": null,
+  "tags": [{ "id": "bytewire-tag", "name": "bytewire-youtube" }],
+  "versionId": "1"
+}
+
