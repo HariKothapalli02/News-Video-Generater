@@ -169,35 +169,47 @@ def detect_fact_timestamps(facts, audio_words, total_duration, intro_offset=0.0)
     return segments
 
 
-def create_vertical_short(ffmpeg_exe, full_video_path, output_short_path, output_thumb_path, start_time, end_time):
+def create_vertical_short(ffmpeg_exe, video_source_path, output_short_path, output_thumb_path, start_time, end_time, is_already_vertical=False):
     """
-    Slices the specified time range from full_video_path and crops/scales it
-    to standard 9:16 vertical resolution (1080x1920).
+    Slices the specified time range and outputs 9:16 vertical video.
+    If is_already_vertical is True, slices with ultrafast re-encode without scaling overhead.
     """
     duration = max(3.0, end_time - start_time)
 
-    # FFmpeg filter: scale to fit 1080x1920 then center crop to exact 9:16
-    vf_filter = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
-
-    cmd = [
-        ffmpeg_exe,
-        "-y",
-        "-ss", str(start_time),
-        "-t", str(duration),
-        "-i", full_video_path,
-        "-vf", vf_filter,
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "22",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        output_short_path
-    ]
+    if is_already_vertical:
+        cmd = [
+            ffmpeg_exe,
+            "-y",
+            "-ss", str(start_time),
+            "-t", str(duration),
+            "-i", video_source_path,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "22",
+            "-c:a", "copy",
+            output_short_path
+        ]
+    else:
+        vf_filter = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
+        cmd = [
+            ffmpeg_exe,
+            "-y",
+            "-ss", str(start_time),
+            "-t", str(duration),
+            "-i", video_source_path,
+            "-vf", vf_filter,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "22",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            output_short_path
+        ]
 
     subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-    # Extract high quality 9:16 thumbnail frame
-    thumb_time = min(1.5, duration / 2.0)
+    # Extract high quality 9:16 thumbnail frame fast
+    thumb_time = min(1.0, duration / 2.0)
     thumb_cmd = [
         ffmpeg_exe,
         "-y",
@@ -270,9 +282,34 @@ def extract_all_shorts(
     shorts_meta_list = gemini.generate_shorts_metadata(fact_segments, subject, language)
     meta_by_index = {item.get("fact_index", idx + 1): item for idx, item in enumerate(shorts_meta_list)}
 
+    # 5. Enlarge & Reshape Full Video to 9:16 in ONE single fast pass
+    reshaped_full_vertical = os.path.join(shorts_video_dir, f"{job_id}_vertical_master.mp4")
+    is_vertical_ready = False
+    print("[LOG] Reshaping entire full video to 9:16 vertical in one single fast pass...")
+    try:
+        vf_filter = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
+        reshape_cmd = [
+            ffmpeg_exe, "-y",
+            "-i", video_path,
+            "-vf", vf_filter,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "22",
+            "-c:a", "copy",
+            reshaped_full_vertical
+        ]
+        subprocess.run(reshape_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if os.path.exists(reshaped_full_vertical) and os.path.getsize(reshaped_full_vertical) > 1000:
+            is_vertical_ready = True
+            print("[LOG] Full video 9:16 master created! Slicing 10 shorts rapidly...")
+    except Exception as e:
+        print(f"[LOG] Reshape warning: {e}. Falling back to per-slice crop.")
+
+    source_video = reshaped_full_vertical if is_vertical_ready else video_path
+
     completed_shorts = []
 
-    # 5. Extract each short via FFmpeg in 9:16 format
+    # 6. Extract each short from the 9:16 master video
     for idx, seg in enumerate(fact_segments, 1):
         f_idx = seg["factIndex"]
         short_filename = f"{job_id}_short_{f_idx}.mp4"
@@ -281,15 +318,16 @@ def extract_all_shorts(
         short_filepath = os.path.join(shorts_video_dir, short_filename)
         thumb_filepath = os.path.join(shorts_thumb_dir, thumb_filename)
 
-        print(f"[LOG] Rendering Short {idx}/{len(fact_segments)}: Fact {f_idx} [{seg['startTime']}s -> {seg['endTime']}s] to 9:16...")
+        print(f"[LOG] Slicing Short {idx}/{len(fact_segments)}: Fact {f_idx} [{seg['startTime']}s -> {seg['endTime']}s] to 9:16...")
         try:
             create_vertical_short(
                 ffmpeg_exe,
-                video_path,
+                source_video,
                 short_filepath,
                 thumb_filepath,
                 seg["startTime"],
-                seg["endTime"]
+                seg["endTime"],
+                is_already_vertical=is_vertical_ready
             )
 
             meta = meta_by_index.get(f_idx, {})
@@ -312,9 +350,16 @@ def extract_all_shorts(
                     "tags": short_tags
                 }
             })
-            print(f"[LOG] Short {f_idx} rendered successfully: {short_filename} ({seg['duration']}s)")
+            print(f"[LOG] Short {f_idx} sliced successfully: {short_filename} ({seg['duration']}s)")
         except Exception as e:
-            print(f"[LOG] Error rendering short {f_idx}: {e}")
+            print(f"[LOG] Error slicing short {f_idx}: {e}")
+
+    # Clean up temporary vertical master
+    if is_vertical_ready and os.path.exists(reshaped_full_vertical):
+        try:
+            os.remove(reshaped_full_vertical)
+        except Exception:
+            pass
 
     return {
         "facts": fact_segments,
