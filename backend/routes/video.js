@@ -585,6 +585,8 @@ router.get("/download/:id/short/:shortIndex", async (req, res) => {
   } catch (err) {
     res.status(500).send("Server error occurred initiating download.");
   }
+});
+
 // @route   GET /api/scheduler/status
 // @desc    Get automated daily scheduler status and upcoming rotation
 // @access  Private
