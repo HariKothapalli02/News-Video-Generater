@@ -130,6 +130,10 @@ const VideoSchema = new mongoose.Schema({
         description: { type: String },
         tags: [{ type: String }]
       },
+      youtubeShortId: { type: String, default: "" },
+      youtubeShortUrl: { type: String, default: "" },
+      isPosted: { type: Boolean, default: false },
+      postedAt: { type: Date },
       createdAt: { type: Date, default: Date.now }
     }
   ],

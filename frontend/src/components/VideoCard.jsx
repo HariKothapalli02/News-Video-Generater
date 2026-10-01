@@ -61,10 +61,10 @@ export default function VideoCard({ video, onView, onDelete }) {
           </div>
         )}
 
-        {/* 10 Shorts Ready Badge */}
+        {/* Shorts Ready Badge */}
         {video.shorts && video.shorts.length > 0 && (
           <div className="absolute top-2 left-2 bg-white text-black px-1.5 py-0.5 rounded-none text-[9px] font-mono font-bold tracking-wider uppercase">
-            10 Shorts Ready
+            {video.shorts.length} Shorts Ready
           </div>
         )}
 

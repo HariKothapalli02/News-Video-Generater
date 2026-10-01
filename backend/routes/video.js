@@ -3,6 +3,8 @@ const router = express.Router();
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const http = require("http");
+const https = require("https");
 const si = require("systeminformation");
 const Video = require("../models/Video");
 const videoQueue = require("../services/videoQueue");
@@ -612,6 +614,207 @@ router.post("/scheduler/trigger", auth, async (req, res) => {
     res.json({ msg: "Manual scheduler trigger executed", result });
   } catch (err) {
     res.status(500).json({ msg: "Failed to trigger scheduled run", error: err.message });
+  }
+});
+
+// Helper to dispatch a single short upload payload to n8n webhook
+async function dispatchShortToWebhook({ video, short, shortIdx }) {
+  const webhookUrl = process.env.N8N_WEBHOOK_URL;
+  const baseUrl = process.env.APP_URL || "https://ytvideo.harikothapalli.space";
+
+  const meta = short.youtubeMetadata || {};
+  const factTitle = short.factTitle || short.title || `News Short #${shortIdx}`;
+  const rawTitle = meta.title || `${factTitle} #Shorts`;
+  const uploadTitle = (rawTitle.includes("#Shorts") || rawTitle.includes("#shorts"))
+    ? rawTitle.substring(0, 100)
+    : `${rawTitle.substring(0, 90)} #Shorts`;
+
+  let uploadDescription = meta.description || short.scriptText || factTitle;
+  if (video.youtubeUrl && !uploadDescription.includes("youtube.com")) {
+    uploadDescription += `\n\nFull Video: ${video.youtubeUrl}`;
+  }
+  if (!uploadDescription.includes("#shorts")) {
+    uploadDescription += `\n\n#shorts #youtubeshorts #trending #news #bytewire`;
+  }
+  uploadDescription = uploadDescription.substring(0, 5000);
+
+  const uploadTags = (meta.tags && meta.tags.length > 0)
+    ? meta.tags.slice(0, 15)
+    : ["shorts", "youtubeshorts", "news", "trending", "bytewire"];
+
+  const payload = {
+    action: "post_reel",
+    event: "upload_single_short",
+    videoId: video._id.toString(),
+    shortIndex: shortIdx,
+    factIndex: shortIdx,
+    title: uploadTitle,
+    description: uploadDescription,
+    tags: uploadTags,
+    privacyStatus: "public",
+    shortDownloadUrl: `${baseUrl}/api/download/${video._id}/short/${shortIdx}`,
+    videoDownloadUrl: `${baseUrl}/api/download/${video._id}/short/${shortIdx}`,
+    videoUrl: `${baseUrl}/videos/shorts/${video._id}_short_${shortIdx}.mp4`,
+    parentYoutubeUrl: video.youtubeUrl || "",
+    timestamp: new Date().toISOString()
+  };
+
+  if (!webhookUrl) {
+    return { dispatched: false, reason: "N8N_WEBHOOK_URL not configured in .env", payload };
+  }
+
+  return new Promise((resolve) => {
+    try {
+      const parsedUrl = new URL(webhookUrl);
+      const transport = parsedUrl.protocol === "https:" ? https : http;
+      const dataStr = JSON.stringify(payload);
+
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || (parsedUrl.protocol === "https:" ? 443 : 80),
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(dataStr),
+          "User-Agent": "ByteWire-AI/1.0"
+        },
+        timeout: 20000
+      };
+
+      const req = transport.request(options, (res) => {
+        let respData = "";
+        res.on("data", (chunk) => { respData += chunk; });
+        res.on("end", () => {
+          let parsedResp = null;
+          try { parsedResp = JSON.parse(respData); } catch (_) {}
+          resolve({
+            dispatched: true,
+            statusCode: res.statusCode,
+            response: parsedResp || respData,
+            payload
+          });
+        });
+      });
+
+      req.on("error", (err) => {
+        resolve({ dispatched: false, error: err.message, payload });
+      });
+
+      req.on("timeout", () => {
+        req.destroy();
+        resolve({ dispatched: true, timeout: true, payload });
+      });
+
+      req.write(dataStr);
+      req.end();
+    } catch (err) {
+      resolve({ dispatched: false, error: err.message, payload });
+    }
+  });
+}
+
+// @route   POST /api/video/:id/short/:shortIndex/post
+// @desc    Post a specific short/reel directly to YouTube with complete metadata
+// @access  Private
+router.post("/video/:id/short/:shortIndex/post", auth, async (req, res) => {
+  try {
+    const video = await Video.findById(req.params.id);
+    if (!video) {
+      return res.status(404).json({ msg: "Video record not found." });
+    }
+
+    const shortIdx = parseInt(req.params.shortIndex, 10);
+    const short = (video.shorts || []).find((s, idx) => (s.factIndex === shortIdx || idx + 1 === shortIdx));
+    if (!short) {
+      return res.status(404).json({ msg: `Short #${shortIdx} not found for this video.` });
+    }
+
+    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "videos");
+    const filePath = path.resolve(path.join(videoStorage, "shorts", `${req.params.id}_short_${shortIdx}.mp4`));
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ msg: `Short MP4 file for Fact #${shortIdx} is not on disk.` });
+    }
+
+    const dispatchResult = await dispatchShortToWebhook({ video, short, shortIdx });
+
+    // Check if webhook response returned YouTube short ID directly
+    let ytId = "";
+    if (dispatchResult.response) {
+      const respObj = Array.isArray(dispatchResult.response) ? dispatchResult.response[0] : dispatchResult.response;
+      ytId = respObj?.youtubeShortId || respObj?.uploadId || respObj?.id || "";
+    }
+
+    short.isPosted = true;
+    short.postedAt = new Date();
+    if (ytId) {
+      short.youtubeShortId = ytId;
+      short.youtubeShortUrl = `https://www.youtube.com/shorts/${ytId}`;
+    }
+
+    await video.save();
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("video_updated", video);
+    }
+
+    return res.json({
+      success: true,
+      msg: ytId
+        ? `Reel #${shortIdx} published to YouTube: https://www.youtube.com/shorts/${ytId}`
+        : `Reel #${shortIdx} upload dispatched to YouTube with complete metadata!`,
+      short,
+      youtubeShortId: short.youtubeShortId,
+      youtubeShortUrl: short.youtubeShortUrl,
+      dispatchResult
+    });
+  } catch (err) {
+    console.error("Error posting reel:", err);
+    return res.status(500).json({ msg: "Failed to post reel", error: err.message });
+  }
+});
+
+// @route   PATCH /api/video/:id/short/:shortIndex/youtube
+// @desc    Record YouTube Short ID and URL after successful upload
+// @access  Private
+router.patch("/video/:id/short/:shortIndex/youtube", auth, async (req, res) => {
+  try {
+    const { youtubeShortId, youtubeShortUrl } = req.body;
+    const video = await Video.findById(req.params.id);
+    if (!video) {
+      return res.status(404).json({ msg: "Video record not found." });
+    }
+
+    const shortIdx = parseInt(req.params.shortIndex, 10);
+    const short = (video.shorts || []).find((s, idx) => (s.factIndex === shortIdx || idx + 1 === shortIdx));
+    if (!short) {
+      return res.status(404).json({ msg: `Short #${shortIdx} not found.` });
+    }
+
+    if (youtubeShortId) short.youtubeShortId = youtubeShortId;
+    if (youtubeShortUrl || youtubeShortId) {
+      short.youtubeShortUrl = youtubeShortUrl || `https://www.youtube.com/shorts/${youtubeShortId}`;
+    }
+    short.isPosted = true;
+    short.postedAt = new Date();
+
+    await video.save();
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("video_updated", video);
+    }
+
+    return res.json({
+      msg: "Short YouTube status recorded successfully.",
+      videoId: video._id,
+      shortIndex: shortIdx,
+      youtubeShortId: short.youtubeShortId,
+      youtubeShortUrl: short.youtubeShortUrl
+    });
+  } catch (err) {
+    return res.status(500).json({ msg: "Server error recording short YouTube status." });
   }
 });
 

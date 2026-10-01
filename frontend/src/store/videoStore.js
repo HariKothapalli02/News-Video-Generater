@@ -199,6 +199,17 @@ export const useVideoStore = create((set, get) => {
       }
     },
 
+    postReel: async (id, shortIndex) => {
+      try {
+        const res = await axios.post(`${API_URL}/video/${id}/short/${shortIndex}/post`, {}, get().getHeaders());
+        return res.data;
+      } catch (err) {
+        const msg = err.response?.data?.msg || err.response?.data?.error || "Failed to post reel.";
+        set({ error: msg });
+        throw new Error(msg);
+      }
+    },
+
     clearActiveJob: () => set({ activeJob: null }),
     clearError: () => set({ error: null })
   };

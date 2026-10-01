@@ -129,15 +129,21 @@ def execute_gemini_with_retry(prompt, model_name=None, max_retries=3):
     raise last_error or RuntimeError("Gemini failed after all keys and retry attempts.")
 
 
-def select_top_10_news(candidate_items, subject, video_type="tech_news"):
+def select_top_10_news(candidate_items, subject, video_type="tech_news", count=None):
     """
-    Uses Gemini AI to evaluate candidate RSS news items and select the TOP 10
-    highest Click-Through Rate (CTR) and viral engagement stories.
+    Uses Gemini AI to evaluate candidate RSS news items and select the TOP 3
+    (or custom count) highest Click-Through Rate (CTR) and viral engagement stories.
     """
+    if count is None:
+        try:
+            count = int(os.getenv("FACTS_PER_VIDEO", 3))
+        except Exception:
+            count = 3
+
     if not candidate_items:
         return []
 
-    if len(candidate_items) <= 10:
+    if len(candidate_items) <= count:
         return candidate_items
 
     # Format candidate list for Gemini
@@ -150,18 +156,18 @@ def select_top_10_news(candidate_items, subject, video_type="tech_news"):
 
     prompt = f"""
 You are an expert news editor, audience analyst, and viral YouTube news strategist.
-Evaluate the following {len(formatted_candidates)} candidate news stories and select the TOP 10 stories with the HIGHEST Click-Through Rate (CTR) potential and viral public interest.
+Evaluate the following {len(formatted_candidates)} candidate news stories and select the TOP {count} stories with the HIGHEST Click-Through Rate (CTR) potential and viral public interest.
 
 Topic Focus: {subject}
 Category: {video_type}
 
 Selection Rules:
-1. High CTR / Curiosity Appeal: Select stories that make viewers immediately stop, click, and watch (compelling developments, high-stakes decisions, breakthrough tech, dramatic political moves, major policy changes).
+1. High CTR / Curiosity Appeal: Select the top {count} stories that make viewers immediately stop, click, and watch (compelling developments, high-stakes decisions, breakthrough tech, dramatic political moves, major policy changes).
 2. True Impact & Significance: Prioritize genuine breaking news, major national/global affairs, and high-interest topics.
 3. Reject Low-Value Noise: Filter out routine PR updates, trivial corporate announcements, and boring fluff.
-4. Exactly 10 Stories: Select exactly 10 distinct top stories.
+4. Exactly {count} Stories: Select exactly {count} distinct top stories.
 
-Return ONLY a valid JSON array of 10 objects in this exact structure:
+Return ONLY a valid JSON array of {count} objects in this exact structure:
 [
   {{
     "index": 1,
@@ -179,15 +185,15 @@ CANDIDATE STORIES:
 {candidates_text}
 """
 
-    print("[LOG] Running Gemini AI to evaluate candidate pool and select Top 10 High-CTR stories...")
+    print(f"[LOG] Running Gemini AI to evaluate candidate pool and select Top {count} High-CTR stories...")
     try:
         raw_response = execute_gemini_with_retry(prompt)
         cleaned = clean_json_response(raw_response)
         parsed = json.loads(cleaned)
 
-        if isinstance(parsed, list) and len(parsed) >= 5:
+        if isinstance(parsed, list) and len(parsed) >= 1:
             selected_items = []
-            for entry in parsed[:10]:
+            for entry in parsed[:count]:
                 selected_items.append({
                     "title": entry.get("title", ""),
                     "description": entry.get("description", ""),
@@ -203,13 +209,14 @@ CANDIDATE STORIES:
             return selected_items
 
     except Exception as e:
-        print(f"[LOG] Warning: Gemini top-10 selection encountered an issue ({e}). Falling back to freshest candidate stories.")
+        print(f"[LOG] Warning: Gemini top selection encountered an issue ({e}). Falling back to freshest candidate stories.")
 
-    # Graceful fallback: return top 10 freshest items
-    return candidate_items[:10]
+    # Graceful fallback: return top freshest items
+    return candidate_items[:count]
 
 
 def generate_script(news_items, subject, language, custom_prompt=""):
+    num_facts = len(news_items)
     formatted_news = []
     for idx, item in enumerate(news_items, 1):
         hook_info = f" (Hook: {item['viral_hook']})" if item.get("viral_hook") else ""
@@ -225,7 +232,7 @@ def generate_script(news_items, subject, language, custom_prompt=""):
 
     prompt = f"""
 You are a professional YouTube news anchor and scriptwriter for ByteWire AI News.
-Using the following TOP 10 curated and verified stories, create a complete, cinematic, and highly engaging news narration script.
+Using the following TOP {num_facts} curated and verified stories, create a complete, cinematic, and highly engaging news narration script.
 
 Requirements:
 1. Target Language: {language}. You MUST write the ENTIRE script in fluent, broadcast-ready, punchy {language} suitable for a professional YouTube news video.
@@ -234,7 +241,7 @@ Requirements:
 
 4. Output Formatting (CRITICAL: You MUST follow this exact format with the exact line breaks, and NO other text):
 
-BYTEWIRE TOP 10 {clean_subj} NEWS
+BYTEWIRE TOP {num_facts} {clean_subj} NEWS
 Fact 1
 [Short Title of Fact 1 in {language}]
 
@@ -245,16 +252,14 @@ Fact 2
 
 [Description of Fact 2 in {language} (3 to 4 sentences, engaging and punchy)]
 
-...
+Fact {num_facts}
+[Short Title of Fact {num_facts} in {language}]
 
-Fact 10
-[Short Title of Fact 10 in {language}]
-
-[Description of Fact 10 in {language} (3 to 4 sentences, engaging and punchy)]
+[Description of Fact {num_facts} in {language} (3 to 4 sentences, engaging and punchy)]
 
 Outro
 
-[Outro content in {language} (e.g. "Those were the Top 10 {subject} news stories you need to know today. For daily updates on breaking news, technology, politics and future trends, stay tuned to ByteWire. Subscribe and turn on notifications so you never miss the next big story.")]
+[Outro content in {language} (e.g. "Those were the Top {num_facts} {subject} news stories you need to know today. For daily updates on breaking news, technology, politics and future trends, stay tuned to ByteWire. Subscribe and turn on notifications so you never miss the next big story.")]
 
 Rules:
 - DO NOT include scene numbers, camera cues, director notes, music tags, or speaker names.

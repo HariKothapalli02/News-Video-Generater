@@ -15,7 +15,8 @@ import {
   Share2,
   Film,
   Play,
-  Hash
+  Hash,
+  ExternalLink
 } from "lucide-react";
 import { useVideoStore } from "../store/videoStore";
 import Loader from "../components/Loader";
@@ -28,8 +29,10 @@ export default function VideoDetails({ id, onBack }) {
   const [copiedKey, setCopiedKey] = useState(null);
   const [generatingShorts, setGeneratingShorts] = useState(false);
   const [generatingMetadata, setGeneratingMetadata] = useState(false);
+  const [postingShortIndex, setPostingShortIndex] = useState(null);
+  const [postStatus, setPostStatus] = useState({});
 
-  const { retryVideo, getHeaders, generateShorts, generateMetadata, activeJob } = useVideoStore();
+  const { retryVideo, getHeaders, generateShorts, generateMetadata, postReel, activeJob } = useVideoStore();
 
   const fetchVideoDetails = async () => {
     try {
@@ -108,6 +111,53 @@ export default function VideoDetails({ id, onBack }) {
     }
   };
 
+  const handlePostReel = async (shortIdx) => {
+    if (!video) return;
+    setPostingShortIndex(shortIdx);
+    try {
+      const data = await postReel(video._id, shortIdx);
+      const ytId = data?.youtubeShortId;
+      const ytUrl = data?.youtubeShortUrl || (ytId ? `https://www.youtube.com/shorts/${ytId}` : null);
+
+      setVideo((prev) => {
+        if (!prev || !prev.shorts) return prev;
+        const updatedShorts = prev.shorts.map((s, idx) => {
+          if (s.factIndex === shortIdx || idx + 1 === shortIdx) {
+            return {
+              ...s,
+              isPosted: true,
+              postedAt: new Date(),
+              youtubeShortId: ytId || s.youtubeShortId,
+              youtubeShortUrl: ytUrl || s.youtubeShortUrl
+            };
+          }
+          return s;
+        });
+        return { ...prev, shorts: updatedShorts };
+      });
+
+      setPostStatus((prev) => ({
+        ...prev,
+        [shortIdx]: {
+          status: "success",
+          msg: data?.msg || `Short #${shortIdx} published to YouTube!`,
+          url: ytUrl
+        }
+      }));
+    } catch (err) {
+      console.error("Error posting reel:", err);
+      setPostStatus((prev) => ({
+        ...prev,
+        [shortIdx]: {
+          status: "error",
+          msg: err.message || "Failed to post reel. Check YouTube/n8n connection."
+        }
+      }));
+    } finally {
+      setPostingShortIndex(null);
+    }
+  };
+
   if (loading) {
     return <Loader label="QUERYING ARCHIVE METADATA..." />;
   }
@@ -159,7 +209,7 @@ export default function VideoDetails({ id, onBack }) {
               <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">Video Inspector</span>
               {hasShorts && (
                 <span className="text-[9px] font-mono px-1.5 py-0.2 bg-white text-black font-bold uppercase tracking-wider">
-                  10 Shorts Ready
+                  {video.shorts.length} Shorts Ready
                 </span>
               )}
             </div>
@@ -176,7 +226,7 @@ export default function VideoDetails({ id, onBack }) {
               className="flex items-center gap-1.5 bg-zinc-900 hover:bg-white hover:text-black border border-zinc-700 px-3 py-1.5 text-white rounded-none text-xs font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50"
             >
               <Scissors className="w-3.5 h-3.5" />
-              <span>{generatingShorts ? "Extracting Shorts..." : "Turn into 10 Shorts (9:16)"}</span>
+              <span>{generatingShorts ? "Extracting Shorts..." : "Turn into Shorts (9:16)"}</span>
             </button>
           )}
 
@@ -290,9 +340,9 @@ export default function VideoDetails({ id, onBack }) {
                 }`}
               >
                 <Scissors className="w-3.5 h-3.5" />
-                <span>10 Shorts (9:16)</span>
+                <span>Shorts (9:16)</span>
                 {video.shorts?.length > 0 && (
-                  <span className="text-[9px] px-1 bg-white text-black font-bold">10</span>
+                  <span className="text-[9px] px-1 bg-white text-black font-bold">{video.shorts.length}</span>
                 )}
               </button>
 
@@ -340,24 +390,24 @@ export default function VideoDetails({ id, onBack }) {
           {/* Content Pane */}
           <div className="flex-1 p-5 overflow-y-auto leading-relaxed text-xs text-zinc-300 font-mono bg-zinc-950">
             {/* ========================================================================= */}
-            {/* TAB 1: 10 VERTICAL SHORTS (9:16) */}
+            {/* TAB 1: VERTICAL SHORTS (9:16) */}
             {/* ========================================================================= */}
             {activeTab === "shorts" && (
               <div className="space-y-6">
                 {generatingShorts ? (
                   <div className="p-8 text-center bg-black border border-zinc-800 rounded-none space-y-3">
-                    <Loader label="EXTRACTING 10 VERTICAL 9:16 SHORTS & METADATA VIA FFMPEG..." />
+                    <Loader label="SLICING 9:16 SHORTS & GENERATING METADATA VIA FFMPEG..." />
                     <p className="text-zinc-400 text-xs">
-                      Slicing individual fact segments, converting resolution to 1080x1920 (9:16), and generating YouTube Shorts titles, descriptions, and tags with Gemini AI.
+                      Reshaping to 1080x1920 (9:16), slicing fact segments, and generating YouTube Shorts titles, descriptions, and tags with Gemini AI.
                     </p>
                   </div>
                 ) : !hasShorts ? (
                   <div className="p-8 text-center bg-black border border-zinc-800 rounded-none space-y-4">
                     <Scissors className="w-10 h-10 text-zinc-600 mx-auto" />
                     <div className="space-y-1">
-                      <h4 className="text-white text-sm font-bold uppercase">10 Shorts Not Yet Extracted</h4>
+                      <h4 className="text-white text-sm font-bold uppercase">Vertical Shorts Not Yet Extracted</h4>
                       <p className="text-xs text-zinc-400 max-w-md mx-auto leading-relaxed">
-                        Convert this full news video into 10 separate vertical YouTube Shorts (9:16 format, 1080x1920) corresponding to each topic, complete with AI-generated titles, descriptions, and hashtags.
+                        Convert this full news video into vertical YouTube Shorts (9:16 format, 1080x1920) corresponding to each story, complete with AI-generated titles, descriptions, and hashtags.
                       </p>
                     </div>
                     {isCompleted ? (
@@ -366,7 +416,7 @@ export default function VideoDetails({ id, onBack }) {
                         className="px-5 py-2.5 bg-white hover:bg-zinc-200 text-black font-bold uppercase tracking-wider text-xs rounded-none transition-colors cursor-pointer inline-flex items-center gap-2"
                       >
                         <Scissors className="w-4 h-4" />
-                        <span>Turn into 10 Shorts Now</span>
+                        <span>Extract 9:16 Shorts Now</span>
                       </button>
                     ) : (
                       <span className="text-zinc-500 text-xs block">
@@ -472,17 +522,93 @@ export default function VideoDetails({ id, onBack }) {
                                 )}
                               </div>
 
-                              {/* Download Button */}
-                              <div className="pt-2 border-t border-zinc-900 flex justify-end">
-                                <a
-                                  href={shortDownloadUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="w-full text-center py-2 bg-zinc-900 hover:bg-white hover:text-black border border-zinc-800 text-white font-bold text-xs uppercase transition-colors inline-flex items-center justify-center gap-1.5"
-                                >
-                                  <Download className="w-3.5 h-3.5" />
-                                  <span>Download Short #{short.factIndex || idx + 1} (9:16)</span>
-                                </a>
+                              {/* Action Controls: Post Reel & Download */}
+                              <div className="pt-2.5 border-t border-zinc-900 space-y-2">
+                                {/* Post Status Toast */}
+                                {postStatus[short.factIndex || idx + 1] && (
+                                  <div
+                                    className={`p-2 text-[11px] font-mono border flex items-center justify-between gap-2 ${
+                                      postStatus[short.factIndex || idx + 1].status === "success"
+                                        ? "bg-emerald-950/60 border-emerald-700 text-emerald-300"
+                                        : "bg-red-950/60 border-red-700 text-red-300"
+                                    }`}
+                                  >
+                                    <span className="truncate">{postStatus[short.factIndex || idx + 1].msg}</span>
+                                    {postStatus[short.factIndex || idx + 1].url && (
+                                      <a
+                                        href={postStatus[short.factIndex || idx + 1].url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="underline font-bold text-white shrink-0 inline-flex items-center gap-1 hover:text-emerald-200"
+                                      >
+                                        <span>Watch</span>
+                                        <ExternalLink className="w-3 h-3" />
+                                      </a>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Published on YouTube indicator */}
+                                {(short.youtubeShortUrl || short.youtubeShortId) && (
+                                  <div className="flex items-center justify-between text-[10px] bg-red-950/30 border border-red-900/60 px-2.5 py-1.5 text-zinc-300">
+                                    <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                      <span>PUBLISHED ON YOUTUBE</span>
+                                    </div>
+                                    <a
+                                      href={short.youtubeShortUrl || `https://www.youtube.com/shorts/${short.youtubeShortId}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-red-400 hover:text-red-300 font-bold inline-flex items-center gap-1 underline"
+                                    >
+                                      <span>Watch Short</span>
+                                      <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                  </div>
+                                )}
+
+                                {/* Action Buttons Grid: POST THIS REEL + DOWNLOAD */}
+                                <div className="grid grid-cols-2 gap-2">
+                                  {/* POST THIS REEL BUTTON */}
+                                  <button
+                                    onClick={() => handlePostReel(short.factIndex || idx + 1)}
+                                    disabled={postingShortIndex === (short.factIndex || idx + 1)}
+                                    title="Publish this individual 9:16 Short to YouTube with full AI title, hashtags, description & tags"
+                                    className={`py-2 px-2.5 text-center font-bold text-xs uppercase tracking-wider transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                                      short.youtubeShortId || short.isPosted
+                                        ? "bg-red-950 hover:bg-red-900 text-red-200 border border-red-800"
+                                        : "bg-red-600 hover:bg-red-500 text-white border border-red-600 shadow-sm"
+                                    }`}
+                                  >
+                                    {postingShortIndex === (short.factIndex || idx + 1) ? (
+                                      <>
+                                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin rounded-full" />
+                                        <span>Posting...</span>
+                                      </>
+                                    ) : short.youtubeShortId || short.isPosted ? (
+                                      <>
+                                        <Share2 className="w-3.5 h-3.5" />
+                                        <span>Re-Post Reel</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Play className="w-3.5 h-3.5 fill-current" />
+                                        <span>Post This Reel</span>
+                                      </>
+                                    )}
+                                  </button>
+
+                                  {/* DOWNLOAD SHORT BUTTON */}
+                                  <a
+                                    href={shortDownloadUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="py-2 px-2.5 text-center bg-zinc-900 hover:bg-white hover:text-black border border-zinc-800 text-white font-bold text-xs uppercase transition-colors inline-flex items-center justify-center gap-1.5"
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
+                                    <span>Download (9:16)</span>
+                                  </a>
+                                </div>
                               </div>
                             </div>
                           </div>

@@ -273,11 +273,11 @@ export default function Generate() {
             <label className="flex items-start justify-between p-3 bg-black rounded-none border border-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer select-none">
               <div className="space-y-1 pr-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-mono font-bold text-white uppercase">Turn into 10 Shorts (9:16)</span>
+                  <span className="text-[11px] font-mono font-bold text-white uppercase">Extract Vertical Shorts (9:16)</span>
                   <span className="text-[9px] font-mono px-1.5 py-0.2 bg-white text-black font-bold uppercase tracking-wider">1080x1920</span>
                 </div>
                 <p className="text-[10px] text-zinc-400 font-mono leading-relaxed">
-                  Automatically slices the video into 10 vertical 9:16 Shorts (1 per topic) with individual YouTube Shorts titles, descriptions, and tags.
+                  Automatically slices the video into vertical 9:16 Shorts (1 per story) with individual YouTube Shorts titles, descriptions, and hashtags.
                 </p>
               </div>
               <input

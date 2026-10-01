@@ -125,10 +125,11 @@ def main():
 
                 print("@STATUS: Selecting News", flush=True)
                 print("@PROGRESS: 20", flush=True)
-                print("[LOG] Evaluating candidate stories with Gemini AI for Top 10 High-CTR & audience engagement...", flush=True)
-                top_10_stories = gemini.select_top_10_news(candidate_items, subject, video_type)
-                print(f"[LOG] Selected {len(top_10_stories)} top stories. Generating broadcast script...", flush=True)
-                script_text = gemini.generate_script(top_10_stories, subject, language, custom_prompt)
+                facts_count = int(os.getenv("FACTS_PER_VIDEO", 3))
+                print(f"[LOG] Evaluating candidate stories with Gemini AI for Top {facts_count} High-CTR & viral appeal...", flush=True)
+                top_stories = gemini.select_top_10_news(candidate_items, subject, video_type, count=facts_count)
+                print(f"[LOG] Selected {len(top_stories)} top stories. Generating broadcast script...", flush=True)
+                script_text = gemini.generate_script(top_stories, subject, language, custom_prompt)
                 print("[LOG] News script written successfully by Gemini AI.", flush=True)
 
             with open(script_path, "w", encoding="utf-8") as f:
