@@ -10,6 +10,7 @@ web_modules/
 venv/
 .venv/
 python-service/scratch/
+python-service/.gemini_rr_state.json
 
 # Local env files containing sensitive credentials
 .env

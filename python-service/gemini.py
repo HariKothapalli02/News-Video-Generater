@@ -65,70 +65,134 @@ def clean_json_response(text):
     return text
 
 
+RR_STATE_FILE = os.path.join(os.path.dirname(__file__), ".gemini_rr_state.json")
+
+
+def _load_rr_state():
+    """Reads persistent round-robin index and cooldowns."""
+    try:
+        if os.path.exists(RR_STATE_FILE):
+            with open(RR_STATE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {"next_index": 0, "cooldowns": {}}
+
+
+def _save_rr_state(state):
+    """Saves persistent round-robin index and cooldowns."""
+    try:
+        with open(RR_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f)
+    except Exception:
+        pass
+
+
 def execute_gemini_with_retry(prompt, model_name=None, max_retries=5):
     """
-    Calls Gemini API with dynamic multi-key support and automated backoff.
-    Rotates dynamically across API keys if quota/429 limits are met.
+    Calls Gemini API using a true Round-Robin key rotation algorithm.
+    - Evenly balances API requests across all available GEMINI_API_KEYS.
+    - Tracks cooldowns on 429 quota limits so subsequent calls skip exhausted keys.
+    - If a key encounters 429 / Quota Limit, instantly fails over to the next key.
+    - Only pauses if all keys in the pool are quota-limited.
     """
     keys = get_gemini_api_keys()
     if not keys:
-        raise ValueError("No valid GEMINI_API_KEY found in .env file. Please check your .env configuration.")
+        raise ValueError("No valid GEMINI_API_KEY or GEMINI_API_KEYS found in .env file.")
 
-    # Strictly use gemini-2.5-flash mode completely
+    num_keys = len(keys)
+    state = _load_rr_state()
+    cooldowns = state.get("cooldowns", {})
+    now = time.time()
+
+    # Clean expired cooldowns
+    cooldowns = {k: exp for k, exp in cooldowns.items() if exp > now}
+
+    start_index = int(state.get("next_index", 0)) % num_keys
+    # Advance the round-robin cursor for the next request
+    state["next_index"] = (start_index + 1) % num_keys
+    state["cooldowns"] = cooldowns
+    _save_rr_state(state)
+
+    # Standard round-robin order: [start, start+1, ..., start-1]
+    candidate_keys = [keys[(start_index + i) % num_keys] for i in range(num_keys)]
+
+    # Separate into ready keys and keys on cooldown
+    ready_keys = [k for k in candidate_keys if k not in cooldowns]
+    cooling_keys = [k for k in candidate_keys if k in cooldowns]
+    ordered_keys = ready_keys + cooling_keys
+
     primary_model = model_name or get_gemini_model() or "gemini-2.5-flash"
-    models_to_try = [primary_model]
-
     last_error = None
 
-    # Key rotation loop
-    for key_idx, current_key in enumerate(keys):
-        genai.configure(api_key=current_key)
-        masked_key = current_key[:6] + "..." + current_key[-4:] if len(current_key) > 10 else "***"
+    first_key_num = keys.index(ordered_keys[0]) + 1
+    print(f"[LOG] Gemini Round-Robin: {num_keys} key(s) in pool ({len(ready_keys)} active). Starting with Key #{first_key_num}...")
 
-        for current_model_name in models_to_try:
-            model = genai.GenerativeModel(current_model_name)
-            rotated_key = False
-            for attempt in range(1, max_retries + 1):
-                try:
-                    print(f"[LOG] Querying Gemini model '{current_model_name}' (Key: {masked_key}, attempt {attempt}/{max_retries})...")
-                    response = model.generate_content(prompt)
-                    if response and response.text:
-                        return response.text.strip()
-                    raise ValueError("Empty response received from Gemini.")
-                except Exception as e:
-                    err_str = str(e)
-                    last_error = e
+    # Cycle through the ordered keys
+    for attempt_round in range(1, max_retries + 1):
+        all_keys_quota_limited = True
+        quota_wait_sec = 60
 
-                    # Check for rate-limiting or quota exhaustion
-                    is_rate_limit = "429" in err_str or "ResourceExhausted" in err_str or "quota" in err_str.lower()
-                    
-                    if is_rate_limit:
-                        print(f"[LOG] Gemini 429 / Quota Limit encountered on key {masked_key}.")
-                        # If more keys are available, immediately rotate to next key
-                        if key_idx < len(keys) - 1:
-                            print(f"[LOG] Dynamically rotating to next available Gemini API key...")
-                            rotated_key = True
-                            break  # Breaks inner attempt loop to try next key in keys loop
-                        else:
-                            # Parse retry_delay seconds if provided
-                            sleep_match = re.search(r"retry_delay\s*\{\s*seconds:\s*(\d+)", err_str)
-                            retry_seconds_match = re.search(r"retry in ([0-9.]+)s", err_str)
-                            if sleep_match:
-                                wait_sec = min(65, int(sleep_match.group(1)) + 2)
-                            elif retry_seconds_match:
-                                wait_sec = min(65, int(float(retry_seconds_match.group(1))) + 2)
-                            else:
-                                wait_sec = min(60, 20 * attempt)
+        for key_idx, current_key in enumerate(ordered_keys):
+            genai.configure(api_key=current_key)
+            masked_key = current_key[:6] + "..." + current_key[-4:] if len(current_key) > 10 else "***"
+            key_num = keys.index(current_key) + 1
 
-                            print(f"[LOG] Pausing {wait_sec}s for Gemini free tier quota refresh...")
-                            time.sleep(wait_sec)
-                    else:
-                        print(f"[LOG] Gemini request failed with error: {e}")
-                        time.sleep(2 * attempt)
-            if rotated_key:
-                break
+            try:
+                print(f"[LOG] Querying Gemini model '{primary_model}' (Key #{key_num}: {masked_key}, round {attempt_round}/{max_retries})...")
+                model = genai.GenerativeModel(primary_model)
+                response = model.generate_content(prompt)
+                if response and response.text:
+                    # Clear cooldown on success
+                    if current_key in cooldowns:
+                        cooldowns.pop(current_key, None)
+                        state["cooldowns"] = cooldowns
+                        _save_rr_state(state)
+                    return response.text.strip()
+                raise ValueError("Empty response received from Gemini.")
+            except Exception as e:
+                err_str = str(e)
+                last_error = e
 
-    raise last_error or RuntimeError("Gemini failed after all keys and retry attempts.")
+                is_rate_limit = "429" in err_str or "ResourceExhausted" in err_str or "quota" in err_str.lower()
+
+                if is_rate_limit:
+                    print(f"[LOG] Gemini 429 / Quota Limit on Key #{key_num} ({masked_key}).")
+                    # Parse suggested retry delay
+                    sleep_match = re.search(r"retry_delay\s*\{\s*seconds:\s*(\d+)", err_str)
+                    retry_seconds_match = re.search(r"retry in ([0-9.]+)s", err_str)
+                    if sleep_match:
+                        quota_wait_sec = min(65, int(sleep_match.group(1)) + 2)
+                    elif retry_seconds_match:
+                        quota_wait_sec = min(65, int(float(retry_seconds_match.group(1))) + 2)
+
+                    # Put key on cooldown
+                    cooldowns[current_key] = time.time() + quota_wait_sec
+                    state["cooldowns"] = cooldowns
+                    _save_rr_state(state)
+
+                    if key_idx < len(ordered_keys) - 1:
+                        next_key = ordered_keys[key_idx + 1]
+                        next_num = keys.index(next_key) + 1
+                        print(f"[LOG] Instant round-robin failover -> switching to Key #{next_num} immediately.")
+                        continue
+                else:
+                    # Non-rate-limit error (e.g., temporary network error)
+                    all_keys_quota_limited = False
+                    print(f"[LOG] Gemini request on Key #{key_num} failed: {e}")
+                    if key_idx < len(ordered_keys) - 1:
+                        print(f"[LOG] Rotating to next key in pool...")
+                        continue
+
+        # If all keys were exhausted in this round, pause before retrying the pool
+        if attempt_round < max_retries:
+            if all_keys_quota_limited:
+                print(f"[LOG] All {num_keys} Gemini keys reached quota limit. Pausing {quota_wait_sec}s for free-tier refresh...")
+                time.sleep(quota_wait_sec)
+            else:
+                time.sleep(2 * attempt_round)
+
+    raise last_error or RuntimeError("Gemini failed after trying all keys in round-robin pool.")
 
 
 def select_top_10_news(candidate_items, subject, video_type="tech_news", count=None):
