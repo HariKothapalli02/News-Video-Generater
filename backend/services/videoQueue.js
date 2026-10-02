@@ -116,13 +116,10 @@ class VideoQueue {
         latestDoc.progress = 100;
         latestDoc.videoPath = `/videos/${jobId}.mp4`;
         latestDoc.thumbnail = `/thumbnails/${jobId}.png`;
-        this.logsBuffer += `\n[SYSTEM] Job completed successfully.`;
+        this.logsBuffer += `\n[SYSTEM] Video and 3 Shorts generated successfully. Saved locally and queued for scheduled publishing (Full Video at 6:00 AM, Shorts at 9:00 AM, 2:00 PM, 6:00 PM).`;
         latestDoc.logs = this.logsBuffer;
         await latestDoc.save();
         this.broadcastUpdate(latestDoc);
-
-        // Notify n8n webhook instantly so upload starts immediately (no polling delay)
-        this.notifyN8nWebhook(latestDoc);
       } else {
         latestDoc.status = "Failed";
         latestDoc.progress = 0;

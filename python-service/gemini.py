@@ -65,7 +65,7 @@ def clean_json_response(text):
     return text
 
 
-def execute_gemini_with_retry(prompt, model_name=None, max_retries=3):
+def execute_gemini_with_retry(prompt, model_name=None, max_retries=5):
     """
     Calls Gemini API with dynamic multi-key support and automated backoff.
     Rotates dynamically across API keys if quota/429 limits are met.
@@ -74,11 +74,9 @@ def execute_gemini_with_retry(prompt, model_name=None, max_retries=3):
     if not keys:
         raise ValueError("No valid GEMINI_API_KEY found in .env file. Please check your .env configuration.")
 
-    primary_model = model_name or get_gemini_model()
+    # Strictly use gemini-2.5-flash mode completely
+    primary_model = model_name or get_gemini_model() or "gemini-2.5-flash"
     models_to_try = [primary_model]
-    for alt in ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]:
-        if alt not in models_to_try:
-            models_to_try.append(alt)
 
     last_error = None
 
@@ -89,6 +87,7 @@ def execute_gemini_with_retry(prompt, model_name=None, max_retries=3):
 
         for current_model_name in models_to_try:
             model = genai.GenerativeModel(current_model_name)
+            rotated_key = False
             for attempt in range(1, max_retries + 1):
                 try:
                     print(f"[LOG] Querying Gemini model '{current_model_name}' (Key: {masked_key}, attempt {attempt}/{max_retries})...")
@@ -108,23 +107,26 @@ def execute_gemini_with_retry(prompt, model_name=None, max_retries=3):
                         # If more keys are available, immediately rotate to next key
                         if key_idx < len(keys) - 1:
                             print(f"[LOG] Dynamically rotating to next available Gemini API key...")
+                            rotated_key = True
                             break  # Breaks inner attempt loop to try next key in keys loop
                         else:
                             # Parse retry_delay seconds if provided
                             sleep_match = re.search(r"retry_delay\s*\{\s*seconds:\s*(\d+)", err_str)
                             retry_seconds_match = re.search(r"retry in ([0-9.]+)s", err_str)
                             if sleep_match:
-                                wait_sec = min(60, int(sleep_match.group(1)) + 2)
+                                wait_sec = min(65, int(sleep_match.group(1)) + 2)
                             elif retry_seconds_match:
-                                wait_sec = min(60, int(float(retry_seconds_match.group(1))) + 2)
+                                wait_sec = min(65, int(float(retry_seconds_match.group(1))) + 2)
                             else:
-                                wait_sec = 20 * attempt
+                                wait_sec = min(60, 20 * attempt)
 
                             print(f"[LOG] Pausing {wait_sec}s for Gemini free tier quota refresh...")
                             time.sleep(wait_sec)
                     else:
                         print(f"[LOG] Gemini request failed with error: {e}")
                         time.sleep(2 * attempt)
+            if rotated_key:
+                break
 
     raise last_error or RuntimeError("Gemini failed after all keys and retry attempts.")
 
@@ -156,16 +158,16 @@ def select_top_10_news(candidate_items, subject, video_type="tech_news", count=N
 
     prompt = f"""
 You are an expert news editor, audience analyst, and viral YouTube news strategist.
-Evaluate the following {len(formatted_candidates)} candidate news stories and select the TOP {count} stories with the HIGHEST Click-Through Rate (CTR) potential and viral public interest.
+Evaluate the following {len(formatted_candidates)} candidate news stories and select the TOP {count} most trending news stories with the HIGHEST Click-Through Rate (CTR) potential, breaking relevance, and viral public curiosity.
 
 Topic Focus: {subject}
 Category: {video_type}
 
 Selection Rules:
-1. High CTR / Curiosity Appeal: Select the top {count} stories that make viewers immediately stop, click, and watch (compelling developments, high-stakes decisions, breakthrough tech, dramatic political moves, major policy changes).
-2. True Impact & Significance: Prioritize genuine breaking news, major national/global affairs, and high-interest topics.
+1. Top Trending Appeal: Select the top {count} most trending, high-CTR stories that make viewers immediately stop, click, and watch (major breaking developments, high-stakes decisions, breakthrough AI/tech, dramatic public moves, explosive updates).
+2. True Impact & Significance: Prioritize genuine breaking news, major national/global affairs, and high-interest topics trending right now.
 3. Reject Low-Value Noise: Filter out routine PR updates, trivial corporate announcements, and boring fluff.
-4. Exactly {count} Stories: Select exactly {count} distinct top stories.
+4. Exactly {count} Stories: Select exactly {count} distinct top trending stories.
 
 Return ONLY a valid JSON array of {count} objects in this exact structure:
 [

@@ -295,8 +295,8 @@ def main():
         # ======================================================================
         # STAGE 7: YOUTUBE METADATA & 9:16 SHORTS EXTRACTION
         # ======================================================================
-        print("[LOG] Parsing fact chapters and detecting timestamps...")
-        facts_parsed = shorts.parse_facts_from_script(script_text)
+        print("[LOG] Parsing fact chapters and detecting timestamps for exactly 3 shorts...")
+        facts_parsed = shorts.parse_facts_from_script(script_text)[:3]
         fact_segments = shorts.detect_fact_timestamps(facts_parsed, audio_words, audio_duration + intro_offset, intro_offset)
 
         # Output fact segments for backend storage
@@ -312,11 +312,11 @@ def main():
         except Exception as e:
             print(f"[LOG] Warning generating YouTube metadata: {e}", flush=True)
 
-        # Extract 10 vertical 9:16 shorts if requested
+        # Extract vertical 9:16 shorts if requested (strictly 3 shorts)
         if generate_shorts:
             print("@STATUS: Generating Shorts", flush=True)
             print("@PROGRESS: 92", flush=True)
-            print("[LOG] Extracting 10 vertical 9:16 Shorts from video and generating dedicated metadata...", flush=True)
+            print("[LOG] Extracting exactly 3 vertical 9:16 Shorts from video and generating dedicated metadata...", flush=True)
             try:
                 shorts_result = shorts.extract_all_shorts(
                     job_id=job_id,

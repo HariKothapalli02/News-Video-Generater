@@ -24,9 +24,27 @@ def get_ffmpeg_exe():
         return "ffmpeg"
 
 
+NUMBER_WORDS = {
+    1: ["1", "one", "first", "1st", "ek", "pahla", "pehla", "okati", "modata"],
+    2: ["2", "two", "second", "2nd", "do", "dusra", "doosra", "rendu", "rendava"],
+    3: ["3", "three", "third", "3rd", "teen", "teesra", "tisra", "moodu", "moodava"],
+    4: ["4", "four", "fourth", "4th", "char", "chautha", "nalugu", "naalugava"],
+    5: ["5", "five", "fifth", "5th", "paanch", "panch", "aidu", "aidava"],
+    6: ["6", "six", "sixth", "6th", "chhah", "che", "aaru", "aarava"],
+    7: ["7", "seven", "seventh", "7th", "saat", "yedu", "yedava"],
+    8: ["8", "eight", "eighth", "8th", "aath", "enimidi", "enimidava"],
+    9: ["9", "nine", "ninth", "9th", "nau", "tommidi", "tommidava"],
+    10: ["10", "ten", "tenth", "10th", "das", "padi", "padava"]
+}
+
+
+def clean_token(w):
+    return re.sub(r"[^a-zA-Z0-9\u0900-\u097F\u0C00-\u0C7F]", "", str(w).lower()).strip()
+
+
 def parse_facts_from_script(script_text):
     """
-    Parses 'Fact 1' through 'Fact 10' from the news narration script.
+    Parses 'Fact 1' through 'Fact N' from the news narration script.
     """
     if not script_text:
         return []
@@ -47,15 +65,15 @@ def parse_facts_from_script(script_text):
             "full_text": f"{title}. {desc}".strip()
         })
 
-    # If regex missed any facts due to unexpected format, fall back to line chunking
-    if len(facts) < 5:
-        facts = []
+    # If regex found no facts due to unexpected formatting, fall back to line chunking
+    if not facts:
         lines = [line.strip() for line in script_text.splitlines() if line.strip()]
         current_fact = None
         for line in lines:
             fact_match = re.match(r"^(?:Fact|FACT)\s+(\d+)", line, re.IGNORECASE)
             if fact_match:
                 if current_fact:
+                    current_fact["full_text"] = f"{current_fact['title']}. {current_fact['description']}".strip()
                     facts.append(current_fact)
                 current_fact = {
                     "factIndex": int(fact_match.group(1)),
@@ -70,89 +88,138 @@ def parse_facts_from_script(script_text):
                     current_fact["description"] += " " + line.strip("[]*")
                     current_fact["description"] = current_fact["description"].strip()
         if current_fact:
+            current_fact["full_text"] = f"{current_fact['title']}. {current_fact['description']}".strip()
             facts.append(current_fact)
 
-    # Sort by factIndex
+    # Sort by factIndex and limit to top 3 facts for exactly 3 shorts
     facts.sort(key=lambda x: x["factIndex"])
-    return facts
+    return facts[:3]
 
 
 def detect_fact_timestamps(facts, audio_words, total_duration, intro_offset=0.0):
     """
     Calculates exact start and end timestamps in seconds for each fact within the final video.
+    Guarantees clean boundary cuts without the next fact's number (e.g. 'Fact two') bleeding into the short.
     """
     if not facts:
         return []
 
-    # Clean words helper
-    def clean(w):
-        return re.sub(r"[^a-zA-Z0-9\u0900-\u097F\u0C00-\u0C7F]", "", str(w).lower()).strip()
-
     count = len(facts)
     fact_starts = [None] * count
+    fact_start_indices = [None] * count
 
-    if audio_words and len(audio_words) > 20:
+    if audio_words and len(audio_words) > 5:
         words_list = audio_words
         w_len = len(words_list)
+        curr_search_idx = 0
 
         for idx, fact in enumerate(facts):
             f_idx = fact["factIndex"]
-            # Look for "fact <idx>" or first distinct words of the title
-            target_words = [clean(w) for w in fact["title"].split() if len(clean(w)) > 2][:4]
-            num_str = str(f_idx)
-            
-            matched_time = None
+            valid_nums = set(NUMBER_WORDS.get(f_idx, [str(f_idx)]))
+            target_words = [clean_token(w) for w in fact["title"].split() if len(clean_token(w)) > 2][:4]
 
-            # First priority: find "fact" followed by the number
-            for i in range(w_len - 1):
-                if words_list[i]["word"] in ["fact", "number"] and words_list[i + 1]["word"] == num_str:
+            matched_time = None
+            matched_idx = None
+
+            # Priority 1: Find spoken marker "fact" / "number" / "story" followed by number word or digit
+            for i in range(curr_search_idx, w_len - 1):
+                w1 = clean_token(words_list[i]["word"])
+                w2 = clean_token(words_list[i + 1]["word"])
+                if w1 in ["fact", "number", "story", "topic", "point"] and w2 in valid_nums:
                     matched_time = words_list[i]["start"]
+                    matched_idx = i
+                    break
+                # Handle merged tokens like "fact1", "fact2", "factone", "facttwo"
+                if w1.startswith("fact") and any(w1.endswith(num) for num in valid_nums):
+                    matched_time = words_list[i]["start"]
+                    matched_idx = i
                     break
 
-            # Second priority: match title words sequence
+            # Priority 2: Match sequence of distinct title words if marker was not found
             if matched_time is None and target_words:
-                for i in range(w_len - len(target_words)):
+                target_len = min(4, len(target_words))
+                target = target_words[:target_len]
+                for i in range(curr_search_idx, w_len - target_len + 1):
                     matches = 0
-                    for j, tw in enumerate(target_words):
-                        if words_list[i + j]["word"] == tw:
+                    for j, tw in enumerate(target):
+                        if clean_token(words_list[i + j]["word"]) == tw:
                             matches += 1
-                    if matches >= max(2, len(target_words) - 1):
+                    if matches >= max(2, target_len - 1):
                         matched_time = words_list[i]["start"]
+                        matched_idx = i
                         break
 
-            fact_starts[idx] = matched_time
+            if matched_time is not None:
+                fact_starts[idx] = matched_time
+                fact_start_indices[idx] = matched_idx
+                # Advance search pointer past the start of this fact
+                curr_search_idx = min(w_len - 1, matched_idx + 1)
 
-    # Validate and fill missing timestamps with proportional interpolation
+    # Validate and fill missing start timestamps with proportional interpolation
     usable_duration = max(10.0, total_duration - intro_offset)
     proportional_step = usable_duration / (count + 1)  # reserve space for intro/outro
 
     for idx in range(count):
         if fact_starts[idx] is None:
-            # Estimate start based on position
             estimated_start = (idx + 0.5) * proportional_step
             fact_starts[idx] = estimated_start
 
-    # Ensure strictly increasing start times
+    # Ensure strictly increasing start times with at least 8s spacing
     for idx in range(1, count):
         if fact_starts[idx] <= fact_starts[idx - 1]:
             fact_starts[idx] = fact_starts[idx - 1] + 10.0
 
-    # Build final segments with intro_offset
+    # Build final segments with intro_offset and precise end times
     segments = []
+    w_len = len(audio_words) if audio_words else 0
+
     for idx in range(count):
         start_audio = fact_starts[idx]
-        if idx < count - 1:
-            end_audio = fact_starts[idx + 1]
-        else:
-            # Last fact ends at total duration minus outro buffer (approx 8s) or total_duration
-            end_audio = min(total_duration - intro_offset, start_audio + 30.0)
 
-        # Ensure reasonable short duration (between 10 and 60 seconds)
+        # Determine exact end timestamp
+        if idx < count - 1:
+            next_start = fact_starts[idx + 1]
+            next_idx = fact_start_indices[idx + 1]
+
+            # If we know the exact audio word index where next fact begins:
+            if audio_words and next_idx is not None and next_idx > 0:
+                # The word before next fact's start is the last word of current fact
+                last_word_idx = next_idx - 1
+                last_word_end = audio_words[last_word_idx]["end"]
+                # Cut cleanly during the silence gap: right after the last word finishes (+0.35s),
+                # and strictly before the next fact begins (at least 0.3s buffer)
+                end_audio = min(last_word_end + 0.35, next_start - 0.3)
+            else:
+                # Fallback: cut 0.5s before next fact's start to avoid any bleed into next fact
+                end_audio = next_start - 0.5
+        else:
+            # Last fact: check if outro starts or find last spoken word
+            outro_start = None
+            if audio_words:
+                start_w_idx = fact_start_indices[idx] or 0
+                for i in range(start_w_idx, w_len - 1):
+                    w = clean_token(audio_words[i]["word"])
+                    w_next = clean_token(audio_words[i + 1]["word"])
+                    if (w in ["outro", "subscribe"]) or (w == "those" and w_next in ["were", "was"]):
+                        outro_start = audio_words[i]["start"]
+                        last_w_end = audio_words[i - 1]["end"] if i > 0 else outro_start - 0.5
+                        end_audio = min(last_w_end + 0.35, outro_start - 0.3)
+                        break
+
+            if outro_start is None:
+                # If no outro marker found, end before total duration minus outro buffer
+                end_audio = min(total_duration - intro_offset, start_audio + 45.0)
+
+        # Enforce minimum and maximum duration constraints for YouTube Shorts
         duration = end_audio - start_audio
         if duration < 8.0:
             end_audio = start_audio + 12.0
-        elif duration > 60.0:
+        elif duration > 58.0:
             end_audio = start_audio + 58.0
+
+        # Guarantee end_audio never exceeds or bleeds into next_start for non-last facts
+        if idx < count - 1:
+            end_audio = min(end_audio, fact_starts[idx + 1] - 0.25)
 
         v_start = round(intro_offset + start_audio, 2)
         v_end = round(min(total_duration, intro_offset + end_audio), 2)
@@ -248,17 +315,18 @@ def extract_all_shorts(
     os.makedirs(shorts_video_dir, exist_ok=True)
     os.makedirs(shorts_thumb_dir, exist_ok=True)
 
-    # 1. Parse facts from script
-    facts = parse_facts_from_script(script_text)
+    # 1. Parse facts from script (strictly top 3 shorts)
+    facts = parse_facts_from_script(script_text)[:3]
     if not facts:
-        print("[LOG] Warning: No structured facts found in script. Generating 10 synthetic fact markers.")
-        for i in range(1, 11):
+        print("[LOG] Warning: No structured facts found in script. Generating 3 synthetic fact markers.")
+        for i in range(1, 4):
             facts.append({
                 "factIndex": i,
                 "title": f"Story #{i} from {subject.title()}",
                 "description": f"Key breaking update #{i} regarding {subject}.",
                 "full_text": f"Story #{i}"
             })
+    facts = facts[:3]
 
     # 2. Get total video duration
     total_duration = 180.0
@@ -278,7 +346,7 @@ def extract_all_shorts(
     print(f"[LOG] Slicing video into {len(fact_segments)} 9:16 vertical shorts (Duration: {total_duration:.1f}s)...")
 
     # 4. Generate Shorts Metadata in ONE single API request to Gemini
-    print("[LOG] Generating dedicated YouTube Shorts metadata (Title, Description, Tags) for all 10 shorts...")
+    print(f"[LOG] Generating dedicated YouTube Shorts metadata (Title, Description, Tags) for all {len(fact_segments)} shorts...")
     shorts_meta_list = gemini.generate_shorts_metadata(fact_segments, subject, language)
     meta_by_index = {item.get("fact_index", idx + 1): item for idx, item in enumerate(shorts_meta_list)}
 
@@ -301,7 +369,7 @@ def extract_all_shorts(
         subprocess.run(reshape_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if os.path.exists(reshaped_full_vertical) and os.path.getsize(reshaped_full_vertical) > 1000:
             is_vertical_ready = True
-            print("[LOG] Full video 9:16 master created! Slicing 10 shorts rapidly...")
+            print(f"[LOG] Full video 9:16 master created! Slicing {len(fact_segments)} shorts rapidly...")
     except Exception as e:
         print(f"[LOG] Reshape warning: {e}. Falling back to per-slice crop.")
 

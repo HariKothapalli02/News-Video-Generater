@@ -63,7 +63,7 @@ server.listen(PORT, () => {
   console.log(`Videos served at http://localhost:${PORT}/videos`);
   console.log(`Thumbnails served at http://localhost:${PORT}/thumbnails`);
   
-  // Initialize automated 6:00 AM daily video scheduler
+  // Initialize automated 5:00 AM generation & scheduled YouTube publishing pipeline (6 AM full, 9 AM, 2 PM, 6 PM shorts)
   const { initScheduler } = require("./services/scheduler");
   initScheduler(app);
 });
