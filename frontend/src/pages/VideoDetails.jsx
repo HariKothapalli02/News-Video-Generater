@@ -16,7 +16,8 @@ import {
   Film,
   Play,
   Hash,
-  ExternalLink
+  ExternalLink,
+  Trash2
 } from "lucide-react";
 import { useVideoStore } from "../store/videoStore";
 import Loader from "../components/Loader";

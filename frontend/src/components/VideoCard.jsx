@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Calendar,
   Download,
@@ -11,6 +11,7 @@ import StatusBadge from "./StatusBadge";
 
 export default function VideoCard({ video, onView, onDelete }) {
   const isCompleted = video.status === "Completed";
+  const [imgError, setImgError] = useState(false);
   
   // Format creation date
   const formatDate = (dateStr) => {
@@ -41,10 +42,11 @@ export default function VideoCard({ video, onView, onDelete }) {
     <div className="bg-zinc-950 rounded-none overflow-hidden border border-zinc-800 hover:border-zinc-500 transition-all duration-200 flex flex-col group">
       {/* Thumbnail / Status Container */}
       <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden border-b border-zinc-800">
-        {thumbUrl ? (
+        {thumbUrl && !imgError ? (
           <img
             src={thumbUrl}
             alt={video.title}
+            onError={() => setImgError(true)}
             className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300 rounded-none"
           />
         ) : (
