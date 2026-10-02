@@ -34,7 +34,8 @@ export default function Generate() {
   const [useSubtitles, setUseSubtitles] = useState(true);
   const [videoType, setVideoType] = useState("tech_news");
   const [customScript, setCustomScript] = useState("");
-  const [generateShorts, setGenerateShorts] = useState(false);
+  const [generateShorts, setGenerateShorts] = useState(true);
+  const [disableAutoUpload, setDisableAutoUpload] = useState(false);
 
   const logsEndRef = useRef(null);
 
@@ -67,7 +68,8 @@ export default function Generate() {
       customPrompt: videoType === "specific_content" ? "" : customPrompt,
       videoType,
       customScript: videoType === "specific_content" ? customScript : "",
-      generateShorts
+      generateShorts,
+      disableAutoUpload
     });
 
     if (success) {
@@ -268,16 +270,16 @@ export default function Generate() {
             </label>
           </div>
 
-          {/* 10 Vertical Shorts (9:16) Pipeline Option */}
+          {/* Top 3 Vertical Shorts (9:16) Pipeline Option */}
           <div className="border-t border-zinc-800 pt-3">
             <label className="flex items-start justify-between p-3 bg-black rounded-none border border-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer select-none">
               <div className="space-y-1 pr-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-mono font-bold text-white uppercase">Extract Vertical Shorts (9:16)</span>
+                  <span className="text-[11px] font-mono font-bold text-white uppercase">Extract Top 3 Shorts (9:16)</span>
                   <span className="text-[9px] font-mono px-1.5 py-0.2 bg-white text-black font-bold uppercase tracking-wider">1080x1920</span>
                 </div>
                 <p className="text-[10px] text-zinc-400 font-mono leading-relaxed">
-                  Automatically slices the video into vertical 9:16 Shorts (1 per story) with individual YouTube Shorts titles, descriptions, and hashtags.
+                  Full broadcast video covers all Top 10 news stories. The Top 3 highest-CTR viral stories are automatically converted into vertical 9:16 Shorts with dedicated titles, descriptions, and hashtags.
                 </p>
               </div>
               <input
@@ -286,6 +288,28 @@ export default function Generate() {
                 checked={generateShorts}
                 onChange={(e) => setGenerateShorts(e.target.checked)}
                 className="w-4 h-4 rounded-none accent-white bg-black border-zinc-700 cursor-pointer mt-0.5 shrink-0"
+              />
+            </label>
+          </div>
+
+          {/* Disable YouTube Auto-Upload Option */}
+          <div className="border-t border-zinc-800 pt-3">
+            <label className="flex items-start justify-between p-3 bg-black rounded-none border border-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer select-none">
+              <div className="space-y-1 pr-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-mono font-bold text-white uppercase">Keep Local / Offline Only</span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 bg-zinc-800 text-zinc-300 font-bold uppercase tracking-wider">No YT Upload</span>
+                </div>
+                <p className="text-[10px] text-zinc-400 font-mono leading-relaxed">
+                  When enabled, this video and its shorts remain strictly offline on disk. Scheduled automated cron jobs and webhooks will never upload this video to YouTube.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                disabled={!!activeJob}
+                checked={disableAutoUpload}
+                onChange={(e) => setDisableAutoUpload(e.target.checked)}
+                className="w-4 h-4 rounded-none accent-red-500 bg-black border-zinc-700 cursor-pointer mt-0.5 shrink-0"
               />
             </label>
           </div>

@@ -235,6 +235,44 @@ export const useVideoStore = create((set, get) => {
       }
     },
 
+    toggleUploadStatus: async (id, payload = {}) => {
+      try {
+        const res = await axios.patch(`${API_URL}/video/${id}/toggle-upload`, payload, get().getHeaders());
+        get().fetchHistory();
+        return res.data;
+      } catch (err) {
+        const msg = err.response?.data?.msg || "Failed to update upload permissions.";
+        set({ error: msg });
+        throw new Error(msg);
+      }
+    },
+
+    deleteVideoMedia: async (id) => {
+      try {
+        const res = await axios.delete(`${API_URL}/video/${id}/media`, get().getHeaders());
+        get().fetchHistory();
+        get().fetchStats();
+        return res.data;
+      } catch (err) {
+        const msg = err.response?.data?.msg || "Failed to delete video media files.";
+        set({ error: msg });
+        throw new Error(msg);
+      }
+    },
+
+    cleanupStorage: async (target = "scratch") => {
+      try {
+        const res = await axios.post(`${API_URL}/storage/cleanup`, { target }, get().getHeaders());
+        get().fetchHistory();
+        get().fetchStats();
+        return res.data;
+      } catch (err) {
+        const msg = err.response?.data?.msg || "Failed to execute storage cleanup.";
+        set({ error: msg });
+        throw new Error(msg);
+      }
+    },
+
     clearActiveJob: () => set({ activeJob: null }),
     clearError: () => set({ error: null })
   };

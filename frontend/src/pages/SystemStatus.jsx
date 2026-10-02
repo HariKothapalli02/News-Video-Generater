@@ -14,8 +14,9 @@ import {
 } from "lucide-react";
 
 export default function SystemStatus() {
-  const { stats, fetchStats, clearStorage, restartService } = useVideoStore();
-  const [clearing, setClearing] = useState(false);
+  const { stats, fetchStats, clearStorage, cleanupStorage, restartService } = useVideoStore();
+  const [clearingScratch, setClearingScratch] = useState(false);
+  const [clearingAll, setClearingAll] = useState(false);
   const [restarting, setRestarting] = useState(false);
 
   useEffect(() => {
@@ -26,13 +27,38 @@ export default function SystemStatus() {
     return () => clearInterval(interval);
   }, [fetchStats]);
 
-  const handleClearCache = async () => {
-    if (window.confirm("WARNING: This will permanently delete all generated video files (.mp4) and thumbnails (.png) from local disk storage. Proceed?")) {
-      setClearing(true);
-      const success = await clearStorage();
-      setClearing(false);
-      if (success) {
-        alert("Local storage disk cache cleared successfully!");
+  const handleClearScratch = async () => {
+    if (
+      window.confirm(
+        "Purge all downloaded raw Pexels video clips and intermediate scratch rendering files from disk?\n\n(Final completed videos and project history will be preserved)."
+      )
+    ) {
+      setClearingScratch(true);
+      try {
+        const res = await cleanupStorage("scratch");
+        alert(res?.msg || "Downloaded clips and scratch cache purged successfully!");
+      } catch (err) {
+        alert("Failed to clear scratch cache: " + err.message);
+      } finally {
+        setClearingScratch(false);
+      }
+    }
+  };
+
+  const handleClearAllMp4 = async () => {
+    if (
+      window.confirm(
+        "WARNING: This will permanently delete ALL generated full .mp4 videos, sliced 9:16 shorts, and downloaded clips from local disk storage to liberate maximum memory and drive space.\n\nProject metadata, scripts, and logs in the database will remain intact.\n\nProceed?"
+      )
+    ) {
+      setClearingAll(true);
+      try {
+        const res = await cleanupStorage("all_mp4");
+        alert(res?.msg || "All video MP4 files and clips purged successfully!");
+      } catch (err) {
+        alert("Failed to purge video files: " + err.message);
+      } finally {
+        setClearingAll(false);
       }
     }
   };
@@ -155,21 +181,39 @@ export default function SystemStatus() {
               Execute routine server management operations below. Ensure no critical video render tasks are executing prior to invocation.
             </p>
 
-            {/* Clear Storage Operation */}
-            <div className="border border-zinc-850 p-4 rounded-none space-y-2.5 bg-black">
+            {/* Purge Scratch Footage Operation */}
+            <div className="border border-zinc-850 p-4 rounded-none space-y-2 bg-black">
               <div className="flex items-center gap-2 text-xs font-bold text-white">
-                <Trash2 className="w-4 h-4 text-white" />
-                <span className="uppercase">Flush Video Disk Cache</span>
+                <Trash2 className="w-4 h-4 text-amber-400" />
+                <span className="uppercase">Purge Raw Footage & Scratch</span>
               </div>
               <p className="text-[10px] text-zinc-500 leading-relaxed">
-                Cleans all cached `.mp4` video files and `.png` previews in local storage to liberate NVMe drive capacity.
+                Deletes all raw Pexels video downloads and temp rendering chunks in scratch folders. Keeps completed videos intact.
               </p>
               <button
-                onClick={handleClearCache}
-                disabled={clearing || stats.currentJob === "Rendering"}
-                className="w-full py-2 bg-transparent hover:bg-white hover:text-black text-white border border-zinc-700 text-xs font-bold font-mono uppercase tracking-wider rounded-none transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={handleClearScratch}
+                disabled={clearingScratch || stats.currentJob === "Rendering"}
+                className="w-full py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold font-mono uppercase tracking-wider rounded-none transition-colors cursor-pointer disabled:opacity-40"
               >
-                {clearing ? "Flushing Files..." : "Execute Cache Purge"}
+                {clearingScratch ? "Purging Scratch..." : "Purge Temp Footage (Scratch)"}
+              </button>
+            </div>
+
+            {/* Clear All MP4 Storage Operation */}
+            <div className="border border-zinc-850 p-4 rounded-none space-y-2 bg-black">
+              <div className="flex items-center gap-2 text-xs font-bold text-white">
+                <Trash2 className="w-4 h-4 text-red-400" />
+                <span className="uppercase">Flush All MP4 Videos & Cache</span>
+              </div>
+              <p className="text-[10px] text-zinc-500 leading-relaxed">
+                Permanently wipes all generated full MP4 videos, sliced vertical shorts, and preview images to liberate maximum disk storage.
+              </p>
+              <button
+                onClick={handleClearAllMp4}
+                disabled={clearingAll || stats.currentJob === "Rendering"}
+                className="w-full py-2 bg-transparent hover:bg-red-950 hover:text-red-200 hover:border-red-800 text-red-400 border border-zinc-750 text-xs font-bold font-mono uppercase tracking-wider rounded-none transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {clearingAll ? "Flushing All MP4s..." : "Wipe All MP4 Videos"}
               </button>
             </div>
 

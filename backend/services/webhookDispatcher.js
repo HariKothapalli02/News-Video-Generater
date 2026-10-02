@@ -5,6 +5,11 @@ const http = require("http");
  * Dispatches a single YouTube Short upload request to the n8n webhook.
  */
 async function dispatchShortToWebhook({ video, short, shortIdx }) {
+  if (video?.disableAutoUpload || short?.disableAutoUpload) {
+    console.log(`[WebhookDispatcher] 🚫 Upload disabled for Short #${shortIdx} on video "${video?.title || video?._id}". Skipping webhook dispatch.`);
+    return { dispatched: false, reason: "Auto upload disabled by user", payload: null };
+  }
+
   const webhookUrl = process.env.N8N_WEBHOOK_URL;
   const baseUrl = process.env.APP_URL || "https://ytvideo.harikothapalli.space";
 
@@ -108,6 +113,11 @@ async function dispatchShortToWebhook({ video, short, shortIdx }) {
  * Dispatches a full video upload request to the n8n webhook.
  */
 async function dispatchFullVideoToWebhook(video) {
+  if (video?.disableAutoUpload) {
+    console.log(`[WebhookDispatcher] 🚫 Upload disabled for video "${video?.title || video?._id}". Skipping webhook dispatch.`);
+    return { dispatched: false, reason: "Auto upload disabled by user", payload: null };
+  }
+
   const webhookUrl = process.env.N8N_WEBHOOK_URL;
   const baseUrl = process.env.APP_URL || "https://ytvideo.harikothapalli.space";
 

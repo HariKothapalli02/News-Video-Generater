@@ -54,7 +54,8 @@ def main():
     parser.add_argument("--custom-prompt", default="", help="Optional instructions/prompt for scriptwriter")
     parser.add_argument("--video-type", default="tech_news", help="Type of video: tech_news, trending_news, india_general_news, specific_content")
     parser.add_argument("--custom-script", default="", help="Direct script text if video-type is specific_content")
-    parser.add_argument("--generate-shorts", type=str, default="true", help="Extract 10 vertical 9:16 shorts (true/false)")
+    parser.add_argument("--generate-shorts", type=str, default="true", help="Extract vertical 9:16 shorts (true/false)")
+    parser.add_argument("--facts-count", type=int, default=10, help="Number of news facts in the full video (default: 10)")
     
     args = parser.parse_args()
     
@@ -125,12 +126,15 @@ def main():
 
                 print("@STATUS: Selecting News", flush=True)
                 print("@PROGRESS: 20", flush=True)
-                facts_count = int(os.getenv("FACTS_PER_VIDEO", 10))
+                facts_count = args.facts_count if (hasattr(args, "facts_count") and args.facts_count) else int(os.getenv("FACTS_PER_VIDEO", 10))
+                if facts_count < 10 and not os.getenv("ALLOW_SHORT_FACTS_COUNT"):
+                    print(f"[LOG] Enforcing full 10 news facts for broadcast video (overriding setting of {facts_count}).", flush=True)
+                    facts_count = 10
                 print(f"[LOG] Evaluating candidate stories with Gemini AI for Top {facts_count} High-CTR & viral appeal (Top 3 designated for Shorts)...", flush=True)
                 top_stories = gemini.select_top_10_news(candidate_items, subject, video_type, count=facts_count)
                 print(f"[LOG] Selected {len(top_stories)} top stories. Generating broadcast script...", flush=True)
                 script_text = gemini.generate_script(top_stories, subject, language, custom_prompt)
-                print("[LOG] News script written successfully by Gemini AI.", flush=True)
+                print(f"[LOG] News script written successfully by Gemini AI ({len(top_stories)} stories included).", flush=True)
 
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write(script_text)

@@ -87,6 +87,10 @@ const VideoSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  factsCount: {
+    type: Number,
+    default: 10
+  },
   facts: [
     {
       factIndex: { type: Number },
@@ -118,6 +122,10 @@ const VideoSchema = new mongoose.Schema({
   postedAt: {
     type: Date
   },
+  disableAutoUpload: {
+    type: Boolean,
+    default: false
+  },
   isAutomated: {
     type: Boolean,
     default: false
@@ -132,6 +140,7 @@ const VideoSchema = new mongoose.Schema({
       thumbnail: { type: String },
       duration: { type: Number },
       aspectRatio: { type: String, default: "9:16" },
+      disableAutoUpload: { type: Boolean, default: false },
       youtubeMetadata: {
         title: { type: String },
         description: { type: String },

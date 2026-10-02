@@ -83,6 +83,9 @@ class VideoQueue {
       args.push("--generate-shorts", "true");
     }
 
+    // Always pass 10 facts for full video generation
+    args.push("--facts-count", String(videoDoc.factsCount || 10));
+
     console.log(`Spawning Python process: ${pythonBin} ${args.join(" ")} in ${pythonCwd}`);
     this.childProcess = spawn(pythonBin, args, {
       cwd: pythonCwd,

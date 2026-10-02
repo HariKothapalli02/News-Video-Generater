@@ -225,11 +225,8 @@ def select_top_10_news(candidate_items, subject, video_type="tech_news", count=N
     in a SINGLE API request. The first 3 stories (items #1, #2, #3) are ranked as the Top 3
     viral stories to be converted into shorts.
     """
-    if count is None:
-        try:
-            count = int(os.getenv("FACTS_PER_VIDEO", 10))
-        except Exception:
-            count = 10
+    if count is None or count < 10:
+        count = 10
 
     if not candidate_items:
         return []
@@ -313,8 +310,12 @@ CANDIDATE STORIES:
 
 def generate_script(news_items, subject, language, custom_prompt=""):
     num_facts = len(news_items)
+    # Ensure minimum 10 facts if news_items provides enough
+    if num_facts < 10 and len(news_items) >= 10:
+        num_facts = 10
+
     formatted_news = []
-    for idx, item in enumerate(news_items, 1):
+    for idx, item in enumerate(news_items[:num_facts], 1):
         hook_info = f" (Hook: {item['viral_hook']})" if item.get("viral_hook") else ""
         formatted_news.append(
             f"Story #{idx}:\nTitle: {item['title']}\nDescription: {item['description']}\nCategory: {item['category']}\nSource: {item['source']}{hook_info}\n"
@@ -326,49 +327,65 @@ def generate_script(news_items, subject, language, custom_prompt=""):
     if not clean_subj:
         clean_subj = "TOP"
 
+    # Build explicit requirement for each fact from 1 to num_facts so LLM never skips any
+    template_facts = []
+    for i in range(1, num_facts + 1):
+        template_facts.append(
+            f"Fact {i}\n"
+            f"[Catchy 4-8 word Title for Story #{i} in {language}]\n\n"
+            f"[Engaging 3 to 4 sentence broadcast narration covering Story #{i} in {language}]"
+        )
+    facts_template_str = "\n\n".join(template_facts)
+
     prompt = f"""
-You are a professional YouTube news anchor and scriptwriter for ByteWire AI News.
-Using the following TOP {num_facts} curated and verified stories, create a complete, cinematic, and highly engaging news narration script.
+You are a professional YouTube news anchor and senior scriptwriter for ByteWire AI News.
+Using the following TOP {num_facts} curated and verified stories, create a complete, cinematic, and highly engaging news narration broadcast script.
 
-Requirements:
-1. Target Language: {language}. You MUST write the ENTIRE script in fluent, broadcast-ready, punchy {language} suitable for a professional YouTube news video.
-2. Video Subject Focus: {subject}.
-3. Custom Prompt/Directions: {custom_prompt or "None provided"}.
+CRITICAL REQUIREMENTS:
+1. YOU MUST COVER ALL {num_facts} STORIES! The script MUST contain EXACTLY {num_facts} sections: Fact 1, Fact 2, Fact 3, Fact 4, Fact 5, Fact 6, Fact 7, Fact 8, Fact 9, up to Fact {num_facts}.
+2. DO NOT STOP EARLY. DO NOT SKIP ANY FACT NUMBER. Every single number from Fact 1 to Fact {num_facts} must be present in sequence!
+3. Target Language: {language}. Write the ENTIRE script in fluent, broadcast-ready, punchy {language} suitable for a professional YouTube news video.
+4. Video Subject Focus: {subject}.
+5. Custom Prompt/Directions: {custom_prompt or "None provided"}.
 
-4. Output Formatting (CRITICAL: You MUST follow this exact format with the exact line breaks, and NO other text):
+6. Output Formatting (CRITICAL: You MUST strictly adhere to this exact sequential structure and line breaks, with NO additional commentary, markdown tags, or cues):
 
 BYTEWIRE TOP {num_facts} {clean_subj} NEWS
-Fact 1
-[Short Title of Fact 1 in {language}]
 
-[Description of Fact 1 in {language} (3 to 4 sentences, engaging and punchy)]
-
-Fact 2
-[Short Title of Fact 2 in {language}]
-
-[Description of Fact 2 in {language} (3 to 4 sentences, engaging and punchy)]
-
-Fact {num_facts}
-[Short Title of Fact {num_facts} in {language}]
-
-[Description of Fact {num_facts} in {language} (3 to 4 sentences, engaging and punchy)]
+{facts_template_str}
 
 Outro
 
-[Outro content in {language} (e.g. "Those were the Top {num_facts} {subject} news stories you need to know today. For daily updates on breaking news, technology, politics and future trends, stay tuned to ByteWire. Subscribe and turn on notifications so you never miss the next big story.")]
+[Outro narration in {language} (e.g. "Those were the Top {num_facts} {subject} news stories you need to know today. For daily updates on breaking news, technology, politics, and future trends, stay tuned to ByteWire. Subscribe and turn on notifications so you never miss the next big story.")]
 
 Rules:
 - DO NOT include scene numbers, camera cues, director notes, music tags, or speaker names.
-- Output ONLY the formatted script text. Do not wrap in markdown or code blocks.
+- Output ONLY the formatted script text containing all {num_facts} facts from Fact 1 to Fact {num_facts}. Do not wrap in markdown or code blocks.
 
 NEWS STORIES:
 {news_text}
 """
 
-    return execute_gemini_with_retry(prompt)
+    raw_script = execute_gemini_with_retry(prompt)
+
+    # Verification: check if all num_facts were generated
+    found_facts = len(re.findall(r"(?:Fact|FACT)\s+\d+", raw_script))
+    if found_facts < num_facts:
+        print(f"[LOG] Warning: Generated script produced {found_facts}/{num_facts} facts. Triggering strict completion pass...")
+        retry_prompt = prompt + f"\n\nIMPORTANT: Your previous output only included {found_facts} facts. You MUST generate ALL {num_facts} facts sequentially from Fact 1 through Fact {num_facts} and then Outro. Do not omit any numbers!"
+        try:
+            retry_script = execute_gemini_with_retry(retry_prompt)
+            retry_found = len(re.findall(r"(?:Fact|FACT)\s+\d+", retry_script))
+            if retry_found > found_facts:
+                raw_script = retry_script
+                print(f"[LOG] Script completion successful: recovered {retry_found}/{num_facts} facts.")
+        except Exception as e:
+            print(f"[LOG] Retry exception ({e}), keeping primary script.")
+
+    return raw_script
 
 
-def generate_scene_plan(script, max_scenes=25):
+def generate_scene_plan(script, max_scenes=35):
     prompt = f"""
 You are a professional faceless YouTube video editor.
 Analyze this script and create a cinematic background video plan.

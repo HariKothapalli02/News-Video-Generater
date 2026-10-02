@@ -91,6 +91,7 @@ async function triggerDailyGeneration(io, isManual = false) {
       useMusic: true,
       useSubtitles: true,
       generateShorts: true,
+      factsCount: 10,
       isAutomated: true
     });
 
@@ -139,19 +140,21 @@ async function publishDailyFullVideo(io) {
       return { success: true, skipped: true, reason: "Already posted or uploaded" };
     }
 
-    // 2. Find today's completed video that hasn't been uploaded to YouTube yet
+    // 2. Find today's completed video that hasn't been uploaded to YouTube yet and is not marked offline
     let video = await Video.findOne({
       status: "Completed",
       createdAt: { $gte: todayStart },
+      disableAutoUpload: { $ne: true },
       isPosted: { $ne: true },
       $or: [{ youtubeVideoId: "" }, { youtubeVideoId: null }, { youtubeVideoId: { $exists: false } }],
       $and: [{ $or: [{ youtubeUrl: "" }, { youtubeUrl: null }, { youtubeUrl: { $exists: false } }] }]
     }).sort({ createdAt: -1 });
 
     if (!video) {
-      // Fallback: look for most recent unposted completed video
+      // Fallback: look for most recent unposted completed video that is not marked offline
       video = await Video.findOne({
         status: "Completed",
+        disableAutoUpload: { $ne: true },
         isPosted: { $ne: true },
         $or: [{ youtubeVideoId: "" }, { youtubeVideoId: null }, { youtubeVideoId: { $exists: false } }],
         $and: [{ $or: [{ youtubeUrl: "" }, { youtubeUrl: null }, { youtubeUrl: { $exists: false } }] }]
@@ -232,6 +235,12 @@ async function publishDailyShort(io, shortIdx) {
     if (!short) {
       console.log(`[Scheduler ${slotName}] ℹ️ Short #${shortIdx} not found in video '${video.title}'.`);
       return { success: false, reason: "Short not found" };
+    }
+
+    // Skip if upload disabled on whole video or on this specific short
+    if (video.disableAutoUpload || short.disableAutoUpload) {
+      console.log(`[Scheduler ${slotName}] 🚫 Auto-upload disabled for video '${video.title}' or Short #${shortIdx}. Skipping.`);
+      return { success: true, skipped: true, reason: "Auto-upload disabled for this video/short" };
     }
 
     // Skip if already posted or manually uploaded

@@ -62,7 +62,7 @@ const getSystemStats = async () => {
 // @desc    Trigger video script news generation
 // @access  Private
 router.post("/generate", auth, async (req, res) => {
-  const { title, subject, language, useMusic, useSubtitles, customPrompt, videoType, customScript, generateShorts } = req.body;
+  const { title, subject, language, useMusic, useSubtitles, customPrompt, videoType, customScript, generateShorts, factsCount, disableAutoUpload } = req.body;
 
   if (!title) {
     return res.status(400).json({ msg: "Title is required." });
@@ -86,7 +86,9 @@ router.post("/generate", auth, async (req, res) => {
       useMusic: useMusic !== undefined ? useMusic : true,
       useSubtitles: useSubtitles !== undefined ? useSubtitles : true,
       customPrompt: customPrompt || "",
-      generateShorts: generateShorts === undefined ? true : (generateShorts === true || generateShorts === "true")
+      generateShorts: generateShorts === undefined ? true : (generateShorts === true || generateShorts === "true"),
+      factsCount: factsCount ? parseInt(factsCount, 10) : 10,
+      disableAutoUpload: disableAutoUpload === true || disableAutoUpload === "true"
     });
 
     await newVideo.save();
@@ -306,31 +308,229 @@ router.get("/system", auth, async (req, res) => {
   }
 });
 
+// Recursive helper to clean files and folders, tracking deleted counts and freed bytes
+const cleanDirectoryRecursive = (dirPath, extFilter = null, preserveNames = ["intro.mp4"]) => {
+  let freedBytes = 0;
+  let deletedFiles = 0;
+
+  if (!fs.existsSync(dirPath)) return { freedBytes, deletedFiles };
+
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        const sub = cleanDirectoryRecursive(fullPath, extFilter, preserveNames);
+        freedBytes += sub.freedBytes;
+        deletedFiles += sub.deletedFiles;
+        try {
+          if (fs.readdirSync(fullPath).length === 0) {
+            fs.rmdirSync(fullPath);
+          }
+        } catch (e) {}
+      } else {
+        if (preserveNames.includes(entry.name)) continue;
+        if (!extFilter || extFilter.some((ext) => entry.name.toLowerCase().endsWith(ext))) {
+          try {
+            const stats = fs.statSync(fullPath);
+            freedBytes += stats.size;
+            fs.unlinkSync(fullPath);
+            deletedFiles++;
+          } catch (e) {}
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`[Storage] Warning cleaning directory ${dirPath}:`, e.message);
+  }
+
+  return { freedBytes, deletedFiles };
+};
+
 // @route   POST /api/clear-storage
-// @desc    Delete all video MP4 and image PNG files to free up disk storage
+// @desc    Delete all scratch downloads, video MP4s, and preview PNGs to liberate disk space
 // @access  Private
 router.post("/clear-storage", auth, async (req, res) => {
   try {
-    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "videos");
-    const thumbStorage = process.env.THUMBNAIL_STORAGE_DIR || path.join(__dirname, "..", "thumbnails");
+    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "..", "videos");
+    const thumbStorage = process.env.THUMBNAIL_STORAGE_DIR || path.join(__dirname, "..", "..", "thumbnails");
+    const scratchStorage = path.join(__dirname, "..", "..", "python-service", "scratch");
 
-    const vFiles = fs.readdirSync(videoStorage);
-    for (let f of vFiles) {
-      if (f.endsWith(".mp4") && f !== "intro.mp4") {
-        fs.unlinkSync(path.join(videoStorage, f));
-      }
-    }
+    const scratchRes = cleanDirectoryRecursive(scratchStorage);
+    const videoRes = cleanDirectoryRecursive(videoStorage, [".mp4"], ["intro.mp4"]);
+    const thumbRes = cleanDirectoryRecursive(thumbStorage, [".png", ".jpg"]);
 
-    const tFiles = fs.readdirSync(thumbStorage);
-    for (let f of tFiles) {
-      if (f.endsWith(".png")) {
-        fs.unlinkSync(path.join(thumbStorage, f));
-      }
-    }
+    const totalFreed = scratchRes.freedBytes + videoRes.freedBytes + thumbRes.freedBytes;
+    const totalFiles = scratchRes.deletedFiles + videoRes.deletedFiles + thumbRes.deletedFiles;
+    const freedMB = (totalFreed / (1024 * 1024)).toFixed(1);
 
-    res.json({ msg: "Local cache storage files wiped successfully." });
+    res.json({
+      success: true,
+      deletedFiles: totalFiles,
+      freedBytes: totalFreed,
+      freedMB: `${freedMB} MB`,
+      msg: `Purged ${totalFiles} cached video/clip files (${freedMB} MB liberated).`
+    });
   } catch (err) {
+    console.error("Storage clear error:", err);
     res.status(500).json({ msg: "Server error clearing files storage." });
+  }
+});
+
+// @route   POST /api/storage/cleanup
+// @desc    Targeted storage purge: 'scratch' (downloaded raw clips), 'all_mp4' (rendered videos), or 'everything'
+// @access  Private
+router.post("/storage/cleanup", auth, async (req, res) => {
+  try {
+    const { target } = req.body; // 'scratch' | 'all_mp4' | 'everything'
+    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "..", "videos");
+    const thumbStorage = process.env.THUMBNAIL_STORAGE_DIR || path.join(__dirname, "..", "..", "thumbnails");
+    const scratchStorage = path.join(__dirname, "..", "..", "python-service", "scratch");
+
+    let totalFreed = 0;
+    let totalFiles = 0;
+
+    if (target === "scratch" || target === "everything" || !target) {
+      const scratchRes = cleanDirectoryRecursive(scratchStorage);
+      totalFreed += scratchRes.freedBytes;
+      totalFiles += scratchRes.deletedFiles;
+    }
+
+    if (target === "all_mp4" || target === "everything") {
+      const vidRes = cleanDirectoryRecursive(videoStorage, [".mp4"], ["intro.mp4"]);
+      totalFreed += vidRes.freedBytes;
+      totalFiles += vidRes.deletedFiles;
+
+      if (target === "everything") {
+        const thumbRes = cleanDirectoryRecursive(thumbStorage, [".png", ".jpg"]);
+        totalFreed += thumbRes.freedBytes;
+        totalFiles += thumbRes.deletedFiles;
+      }
+    }
+
+    const freedMB = (totalFreed / (1024 * 1024)).toFixed(1);
+    const freedGB = (totalFreed / (1024 * 1024 * 1024)).toFixed(2);
+    const sizeDisplay = totalFreed > 1024 * 1024 * 1024 ? `${freedGB} GB` : `${freedMB} MB`;
+
+    res.json({
+      success: true,
+      target: target || "scratch",
+      deletedFiles: totalFiles,
+      freedBytes: totalFreed,
+      freedDisplay: sizeDisplay,
+      msg: `Purged ${totalFiles} file(s), liberating ${sizeDisplay} of disk space.`
+    });
+  } catch (err) {
+    console.error("Storage cleanup error:", err);
+    res.status(500).json({ msg: "Server error executing storage cleanup." });
+  }
+});
+
+// @route   DELETE /api/video/:id/media
+// @desc    Delete .mp4 media files (full video & shorts) for a specific video to free memory/disk
+// @access  Private
+router.delete("/video/:id/media", auth, async (req, res) => {
+  try {
+    const video = await Video.findById(req.params.id);
+    if (!video) {
+      return res.status(404).json({ msg: "Video record not found." });
+    }
+
+    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "..", "videos");
+    let freedBytes = 0;
+    let deletedFiles = 0;
+
+    // Delete full video file
+    const fullVideoPath = path.join(videoStorage, `${video._id}.mp4`);
+    if (fs.existsSync(fullVideoPath)) {
+      try {
+        const s = fs.statSync(fullVideoPath);
+        freedBytes += s.size;
+        fs.unlinkSync(fullVideoPath);
+        deletedFiles++;
+      } catch (e) {}
+    }
+
+    // Delete shorts for this video
+    const shortsDir = path.join(videoStorage, "shorts");
+    if (fs.existsSync(shortsDir)) {
+      try {
+        const sFiles = fs.readdirSync(shortsDir);
+        for (const f of sFiles) {
+          if (f.startsWith(video._id.toString()) && f.endsWith(".mp4")) {
+            const p = path.join(shortsDir, f);
+            const s = fs.statSync(p);
+            freedBytes += s.size;
+            fs.unlinkSync(p);
+            deletedFiles++;
+          }
+        }
+      } catch (e) {}
+    }
+
+    video.videoPath = "";
+    if (video.shorts) {
+      video.shorts.forEach((s) => {
+        s.videoPath = "";
+      });
+    }
+    await video.save();
+
+    const freedMB = (freedBytes / (1024 * 1024)).toFixed(1);
+    res.json({
+      success: true,
+      deletedFiles,
+      freedBytes,
+      freedMB: `${freedMB} MB`,
+      msg: `Purged ${deletedFiles} media file(s) for this project (${freedMB} MB freed).`,
+      video
+    });
+  } catch (err) {
+    console.error("Delete video media error:", err);
+    res.status(500).json({ msg: "Server error deleting video media." });
+  }
+});
+
+// @route   PATCH /api/video/:id/toggle-upload
+// @desc    Toggle or update disableAutoUpload on full video or specific short
+// @access  Private
+router.patch("/video/:id/toggle-upload", auth, async (req, res) => {
+  try {
+    const { shortIndex, disableAutoUpload } = req.body;
+    const video = await Video.findById(req.params.id);
+    if (!video) {
+      return res.status(404).json({ msg: "Video record not found." });
+    }
+
+    if (shortIndex !== undefined && shortIndex !== null) {
+      const idx = parseInt(shortIndex, 10);
+      const targetShort = (video.shorts || []).find(
+        (s) => s.factIndex === idx || video.shorts.indexOf(s) === idx - 1
+      );
+      if (targetShort) {
+        targetShort.disableAutoUpload =
+          disableAutoUpload !== undefined ? disableAutoUpload : !targetShort.disableAutoUpload;
+      }
+    } else {
+      video.disableAutoUpload =
+        disableAutoUpload !== undefined ? disableAutoUpload : !video.disableAutoUpload;
+    }
+
+    await video.save();
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("video_updated", video);
+      io.emit("job_update", video);
+    }
+
+    res.json({
+      msg: "YouTube upload setting updated successfully.",
+      video
+    });
+  } catch (err) {
+    console.error("Toggle upload setting error:", err);
+    res.status(500).json({ msg: "Server error updating upload settings." });
   }
 });
 

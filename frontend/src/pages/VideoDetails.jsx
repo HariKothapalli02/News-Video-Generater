@@ -37,7 +37,7 @@ export default function VideoDetails({ id, onBack }) {
   const [showManualModal, setShowManualModal] = useState(false);
   const [manualModalTarget, setManualModalTarget] = useState(null);
 
-  const { retryVideo, getHeaders, generateShorts, generateMetadata, postReel, postFullVideo, markVideoPosted, activeJob } = useVideoStore();
+  const { retryVideo, getHeaders, generateShorts, generateMetadata, postReel, postFullVideo, markVideoPosted, toggleUploadStatus, deleteVideoMedia, activeJob } = useVideoStore();
 
   const fetchVideoDetails = async () => {
     try {
@@ -247,6 +247,33 @@ export default function VideoDetails({ id, onBack }) {
     }
   };
 
+  const handleToggleUpload = async (shortIndex = null) => {
+    try {
+      const res = await toggleUploadStatus(video._id, shortIndex !== null ? { shortIndex } : {});
+      if (res?.video) {
+        setVideo(res.video);
+      }
+    } catch (err) {
+      alert("Failed to update upload permission: " + err.message);
+    }
+  };
+
+  const handleDeleteMedia = async () => {
+    if (
+      window.confirm(
+        "WARNING: This will delete the generated full video (.mp4) and shorts (.mp4) from local disk storage to liberate server memory and disk space.\n\nProject metadata, script logs, and subtitles will remain intact.\n\nProceed?"
+      )
+    ) {
+      try {
+        const res = await deleteVideoMedia(video._id);
+        alert(res?.msg || "Video MP4 files purged from disk successfully.");
+        fetchVideoDetails();
+      } catch (err) {
+        alert("Failed to delete video files: " + err.message);
+      }
+    }
+  };
+
   if (loading) {
     return <Loader label="QUERYING ARCHIVE METADATA..." />;
   }
@@ -350,6 +377,17 @@ export default function VideoDetails({ id, onBack }) {
             </button>
           )}
 
+          {isCompleted && (video.videoPath || video.shorts?.some((s) => s.videoPath)) && (
+            <button
+              onClick={handleDeleteMedia}
+              className="flex items-center gap-1.5 bg-zinc-900 hover:bg-red-950 hover:text-red-300 hover:border-red-800 border border-zinc-800 px-3 py-1.5 text-zinc-400 rounded-none text-xs font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer"
+              title="Delete generated MP4 video files from disk to free memory & storage"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Clear MP4 Files</span>
+            </button>
+          )}
+
           {isCompleted && (
             <a
               href={downloadUrl}
@@ -409,7 +447,12 @@ export default function VideoDetails({ id, onBack }) {
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
                   YouTube Broadcast (Full 16:9 Video)
                 </span>
-                {(video.isPosted || video.youtubeVideoId || video.youtubeUrl) ? (
+                {video.disableAutoUpload ? (
+                  <span className="flex items-center gap-1.5 text-[9px] font-mono text-red-400 font-bold uppercase">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                    Upload Blocked (Local Only)
+                  </span>
+                ) : (video.isPosted || video.youtubeVideoId || video.youtubeUrl) ? (
                   <span className="flex items-center gap-1.5 text-[9px] font-mono text-emerald-400 font-bold uppercase">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     Published
@@ -492,11 +535,33 @@ export default function VideoDetails({ id, onBack }) {
                   <span>Manual Upload</span>
                 </button>
               </div>
+
+              {/* Toggle YouTube Auto-Upload Permission */}
+              <div className="pt-2 border-t border-zinc-900 flex items-center justify-between text-xs font-mono">
+                <span className="text-[10px] text-zinc-500">
+                  {video.disableAutoUpload ? "Auto-upload blocked (Local only)" : "Auto-publishing allowed"}
+                </span>
+                <button
+                  onClick={() => handleToggleUpload(null)}
+                  className={`text-[10px] uppercase font-bold px-2 py-1 border transition-colors cursor-pointer ${
+                    video.disableAutoUpload
+                      ? "bg-zinc-900 hover:bg-emerald-950 border-emerald-800 text-emerald-400"
+                      : "bg-zinc-900 hover:bg-red-950 border-zinc-800 text-zinc-400 hover:text-red-300"
+                  }`}
+                  title={
+                    video.disableAutoUpload
+                      ? "Click to allow automated daily upload to YouTube"
+                      : "Click to block automated upload (keep strictly offline)"
+                  }
+                >
+                  {video.disableAutoUpload ? "✓ Enable YT Upload" : "🚫 Block YT Upload"}
+                </button>
+              </div>
             </div>
           )}
 
           {/* Quick Meta Stats */}
-          <div className="bg-black border border-zinc-800 p-3 grid grid-cols-3 gap-2 text-center text-xs font-mono">
+          <div className="bg-black border border-zinc-800 p-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs font-mono">
             <div>
               <span className="text-[10px] text-zinc-500 uppercase block">Duration</span>
               <span className="font-bold text-white">{video.duration ? `${Math.floor(video.duration / 60)}m ${Math.round(video.duration % 60)}s` : "N/A"}</span>
@@ -506,7 +571,11 @@ export default function VideoDetails({ id, onBack }) {
               <span className="font-bold text-white">16:9 (Full HD)</span>
             </div>
             <div>
-              <span className="text-[10px] text-zinc-500 uppercase block">Shorts Count</span>
+              <span className="text-[10px] text-zinc-500 uppercase block">News Stories</span>
+              <span className="font-bold text-white">{video.facts?.length || 10} Stories</span>
+            </div>
+            <div>
+              <span className="text-[10px] text-zinc-500 uppercase block">Viral Shorts</span>
               <span className="font-bold text-white">{video.shorts?.length || 0} / 3</span>
             </div>
           </div>
@@ -642,10 +711,12 @@ export default function VideoDetails({ id, onBack }) {
                     <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
                       <div>
                         <h4 className="text-white font-bold uppercase text-xs">Extracted 9:16 Vertical Shorts</h4>
-                        <p className="text-[11px] text-zinc-400">10 individual shorts formatted for YouTube Shorts / Reels (1080x1920)</p>
+                        <p className="text-[11px] text-zinc-400">
+                          {video.shorts.length} vertical shorts extracted from Top 3 viral stories (1080x1920)
+                        </p>
                       </div>
                       <span className="text-[10px] font-bold px-2 py-0.5 bg-white text-black uppercase">
-                        {video.shorts.length} Shorts Available
+                        {video.shorts.length} Shorts Ready
                       </span>
                     </div>
 
@@ -823,11 +894,32 @@ export default function VideoDetails({ id, onBack }) {
                                   </a>
                                 </div>
 
-                                <div className="text-right">
+                                <div className="flex items-center justify-between text-[10px] font-mono pt-1">
+                                  <button
+                                    onClick={() => handleToggleUpload(short.factIndex || idx + 1)}
+                                    className={`underline cursor-pointer ${
+                                      short.disableAutoUpload
+                                        ? "text-red-400 hover:text-red-300 font-bold"
+                                        : "text-zinc-500 hover:text-zinc-300"
+                                    }`}
+                                    title={
+                                      short.disableAutoUpload
+                                        ? "Auto-upload is blocked for this short. Click to allow."
+                                        : "Click to block automated upload for this short."
+                                    }
+                                  >
+                                    {short.disableAutoUpload ? "🚫 Upload Blocked (Allow)" : "Block YT Upload"}
+                                  </button>
+
                                   <button
                                     onClick={() => {
                                       setManualModalTarget(short.factIndex || idx + 1);
-                                      setManualUrlInput(short.youtubeShortUrl || (short.youtubeShortId ? `https://www.youtube.com/shorts/${short.youtubeShortId}` : ""));
+                                      setManualUrlInput(
+                                        short.youtubeShortUrl ||
+                                          (short.youtubeShortId
+                                            ? `https://www.youtube.com/shorts/${short.youtubeShortId}`
+                                            : "")
+                                      );
                                       setShowManualModal(true);
                                     }}
                                     className="text-[10px] text-zinc-500 hover:text-zinc-300 underline cursor-pointer"

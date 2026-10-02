@@ -248,12 +248,14 @@ def create_vertical_short(ffmpeg_exe, video_source_path, output_short_path, outp
             ffmpeg_exe,
             "-y",
             "-ss", str(start_time),
-            "-t", str(duration),
             "-i", video_source_path,
+            "-t", str(duration),
+            "-avoid_negative_ts", "make_zero",
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "22",
-            "-c:a", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
             output_short_path
         ]
     else:
@@ -262,8 +264,9 @@ def create_vertical_short(ffmpeg_exe, video_source_path, output_short_path, outp
             ffmpeg_exe,
             "-y",
             "-ss", str(start_time),
-            "-t", str(duration),
             "-i", video_source_path,
+            "-t", str(duration),
+            "-avoid_negative_ts", "make_zero",
             "-vf", vf_filter,
             "-c:v", "libx264",
             "-preset", "ultrafast",
