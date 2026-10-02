@@ -202,9 +202,34 @@ export const useVideoStore = create((set, get) => {
     postReel: async (id, shortIndex) => {
       try {
         const res = await axios.post(`${API_URL}/video/${id}/short/${shortIndex}/post`, {}, get().getHeaders());
+        get().fetchHistory();
         return res.data;
       } catch (err) {
         const msg = err.response?.data?.msg || err.response?.data?.error || "Failed to post reel.";
+        set({ error: msg });
+        throw new Error(msg);
+      }
+    },
+
+    postFullVideo: async (id) => {
+      try {
+        const res = await axios.post(`${API_URL}/video/${id}/post`, {}, get().getHeaders());
+        get().fetchHistory();
+        return res.data;
+      } catch (err) {
+        const msg = err.response?.data?.msg || err.response?.data?.error || "Failed to post full video.";
+        set({ error: msg });
+        throw new Error(msg);
+      }
+    },
+
+    markVideoPosted: async (id, payload) => {
+      try {
+        const res = await axios.patch(`${API_URL}/video/${id}/mark-posted`, payload, get().getHeaders());
+        get().fetchHistory();
+        return res.data;
+      } catch (err) {
+        const msg = err.response?.data?.msg || err.response?.data?.error || "Failed to update posted status.";
         set({ error: msg });
         throw new Error(msg);
       }

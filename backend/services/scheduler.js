@@ -56,7 +56,7 @@ async function getNextTopic() {
 
 /**
  * 05:00 AM: Daily Video & 3 Shorts Generation Pipeline.
- * Generates the video completely (top 3 trending news + exactly 3 shorts).
+ * Generates the full video with top 10 trending news, and converts top 3 into shorts.
  * DOES NOT post anything to YouTube at this time.
  */
 async function triggerDailyGeneration(io, isManual = false) {
@@ -75,7 +75,7 @@ async function triggerDailyGeneration(io, isManual = false) {
   const videoTitle = `${topic.titlePrefix} - ${dateStr}`;
 
   console.log(`[Scheduler] ⏰ Auto-triggering 5:00 AM daily video generation: "${videoTitle}" (Type: ${topic.videoType})`);
-  console.log(`[Scheduler] 🔒 Notice: Video and 3 Shorts will be generated locally. No uploads will be made until scheduled times (6 AM full, 9 AM short 1, 2 PM short 2, 6 PM short 3).`);
+  console.log(`[Scheduler] 🔒 Notice: Full video (10 news stories) and 3 Shorts will be generated locally. No uploads will be made until scheduled times (6 AM full, 9 AM short 1, 2 PM short 2, 6 PM short 3).`);
 
   try {
     const newVideo = new Video({
@@ -85,9 +85,9 @@ async function triggerDailyGeneration(io, isManual = false) {
       status: "Pending",
       progress: 0,
       script: "",
-      logs: `Auto-scheduled 5 AM generation (Top 3 trending news). Initializing pipeline without upload...`,
+      logs: `Auto-scheduled 5 AM generation (Top 10 trending news). Initializing pipeline without upload...`,
       videoType: topic.videoType,
-      customPrompt: "Select the top 3 most trending news stories with maximum viral hook, high curiosity, and massive public interest.",
+      customPrompt: "Select the top 10 most trending news stories with maximum viral hook, high curiosity, and massive public interest. The first 3 stories will be converted into dedicated shorts.",
       useMusic: true,
       useSubtitles: true,
       generateShorts: true,
@@ -115,6 +115,7 @@ async function triggerDailyGeneration(io, isManual = false) {
 
 /**
  * 06:00 AM: Publish Today's Full Video to YouTube.
+ * Skips automatically if the video was already manually or previously posted.
  */
 async function publishDailyFullVideo(io) {
   console.log("[Scheduler] ⏰ 6:00 AM trigger fired! Publishing today's full video to YouTube...");
@@ -122,27 +123,47 @@ async function publishDailyFullVideo(io) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    // Find today's completed video that hasn't been uploaded to YouTube yet
+    // 1. Check if today's completed video was already posted or uploaded
+    const alreadyPostedToday = await Video.findOne({
+      status: "Completed",
+      createdAt: { $gte: todayStart },
+      $or: [
+        { isPosted: true },
+        { youtubeVideoId: { $exists: true, $nin: ["", null] } },
+        { youtubeUrl: { $exists: true, $nin: ["", null] } }
+      ]
+    });
+
+    if (alreadyPostedToday) {
+      console.log(`[Scheduler 6:00 AM] ⏭️ Full video '${alreadyPostedToday.title}' (${alreadyPostedToday._id}) is ALREADY posted/uploaded. Skipping automated upload.`);
+      return { success: true, skipped: true, reason: "Already posted or uploaded" };
+    }
+
+    // 2. Find today's completed video that hasn't been uploaded to YouTube yet
     let video = await Video.findOne({
       status: "Completed",
       createdAt: { $gte: todayStart },
-      $or: [{ youtubeVideoId: "" }, { youtubeVideoId: null }, { youtubeVideoId: { $exists: false } }]
+      isPosted: { $ne: true },
+      $or: [{ youtubeVideoId: "" }, { youtubeVideoId: null }, { youtubeVideoId: { $exists: false } }],
+      $and: [{ $or: [{ youtubeUrl: "" }, { youtubeUrl: null }, { youtubeUrl: { $exists: false } }] }]
     }).sort({ createdAt: -1 });
 
     if (!video) {
       // Fallback: look for most recent unposted completed video
       video = await Video.findOne({
         status: "Completed",
-        $or: [{ youtubeVideoId: "" }, { youtubeVideoId: null }, { youtubeVideoId: { $exists: false } }]
+        isPosted: { $ne: true },
+        $or: [{ youtubeVideoId: "" }, { youtubeVideoId: null }, { youtubeVideoId: { $exists: false } }],
+        $and: [{ $or: [{ youtubeUrl: "" }, { youtubeUrl: null }, { youtubeUrl: { $exists: false } }] }]
       }).sort({ createdAt: -1 });
     }
 
     if (!video) {
-      console.log("[Scheduler 6:00 AM] ℹ️ No unposted completed video found for YouTube upload.");
-      return { success: false, reason: "No pending completed video" };
+      console.log("[Scheduler 6:00 AM] ℹ️ No unposted completed video found for YouTube upload. All videos are posted.");
+      return { success: false, reason: "No pending unposted completed video" };
     }
 
-    console.log(`[Scheduler 6:00 AM] Found video '${video.title}' (${video._id}). Dispatching to YouTube uploader...`);
+    console.log(`[Scheduler 6:00 AM] Found pending video '${video.title}' (${video._id}). Dispatching to YouTube uploader...`);
     const dispatchResult = await dispatchFullVideoToWebhook(video);
 
     let ytId = "";
@@ -151,16 +172,19 @@ async function publishDailyFullVideo(io) {
       ytId = respObj?.youtubeVideoId || respObj?.uploadId || respObj?.id || "";
     }
 
+    video.isPosted = true;
+    video.postedAt = new Date();
     if (ytId) {
       video.youtubeVideoId = ytId;
       video.youtubeUrl = `https://www.youtube.com/watch?v=${ytId}`;
-      await video.save();
     }
+    await video.save();
 
     lastPublishExecutionTime.fullVideo = new Date();
 
     if (io) {
       io.emit("video_updated", video);
+      io.emit("job_update", video);
     }
 
     console.log(`[Scheduler 6:00 AM] Full video dispatched successfully. Result:`, dispatchResult.dispatched);
@@ -173,6 +197,7 @@ async function publishDailyFullVideo(io) {
 
 /**
  * 09:00 AM, 02:00 PM (14:00), 06:00 PM (18:00): Publish Individual Short to YouTube.
+ * Skips automatically if the short was already manually or previously posted.
  * @param {Object} io - Socket.io instance
  * @param {number} shortIdx - 1, 2, or 3
  */
@@ -209,9 +234,10 @@ async function publishDailyShort(io, shortIdx) {
       return { success: false, reason: "Short not found" };
     }
 
-    if (short.isPosted && short.youtubeShortId) {
-      console.log(`[Scheduler ${slotName}] ℹ️ Short #${shortIdx} for video '${video.title}' is already posted.`);
-      return { success: false, reason: "Short already posted" };
+    // Skip if already posted or manually uploaded
+    if (short.isPosted || short.youtubeShortId || short.youtubeShortUrl) {
+      console.log(`[Scheduler ${slotName}] ⏭️ Short #${shortIdx} for video '${video.title}' is ALREADY posted/uploaded. Skipping automatic upload.`);
+      return { success: true, skipped: true, reason: "Short already posted or uploaded" };
     }
 
     console.log(`[Scheduler ${slotName}] Found Short #${shortIdx} ('${short.title}'). Dispatching to YouTube uploader...`);

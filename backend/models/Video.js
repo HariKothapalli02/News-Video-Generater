@@ -111,6 +111,13 @@ const VideoSchema = new mongoose.Schema({
     type: String,
     default: ""
   },
+  isPosted: {
+    type: Boolean,
+    default: false
+  },
+  postedAt: {
+    type: Date
+  },
   isAutomated: {
     type: Boolean,
     default: false

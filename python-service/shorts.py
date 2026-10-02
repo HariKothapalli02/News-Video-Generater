@@ -91,9 +91,9 @@ def parse_facts_from_script(script_text):
             current_fact["full_text"] = f"{current_fact['title']}. {current_fact['description']}".strip()
             facts.append(current_fact)
 
-    # Sort by factIndex and limit to top 3 facts for exactly 3 shorts
+    # Sort by factIndex and return all parsed facts (1 to 10)
     facts.sort(key=lambda x: x["factIndex"])
-    return facts[:3]
+    return facts
 
 
 def detect_fact_timestamps(facts, audio_words, total_duration, intro_offset=0.0):

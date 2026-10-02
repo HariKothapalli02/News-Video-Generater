@@ -68,6 +68,14 @@ export default function VideoCard({ video, onView, onDelete }) {
           </div>
         )}
 
+        {/* Published on YouTube Badge */}
+        {(video.isPosted || video.youtubeVideoId) && (
+          <div className="absolute top-2 right-2 bg-red-600 text-white px-1.5 py-0.5 rounded-none text-[9px] font-mono font-bold tracking-wider uppercase flex items-center gap-1 shadow-sm">
+            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+            <span>Published</span>
+          </div>
+        )}
+
         {/* Hover overlay play screen */}
         {isCompleted && thumbUrl && (
           <div

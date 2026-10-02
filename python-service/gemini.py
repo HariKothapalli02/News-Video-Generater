@@ -2,6 +2,14 @@ import os
 os.environ["GRPC_VERBOSITY"] = "NONE"
 os.environ["GRPC_GOOG_LOG_SEVERITY_THRESHOLD"] = "3"
 
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 import json
 import re
 import time
@@ -39,7 +47,7 @@ def get_gemini_api_keys():
 
 def get_gemini_model():
     load_dotenv(ENV_PATH, override=True)
-    return os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    return os.getenv("GEMINI_MODEL", "gemini-flash-latest")
 
 
 def clean_json_response(text):
@@ -90,11 +98,11 @@ def _save_rr_state(state):
 
 def execute_gemini_with_retry(prompt, model_name=None, max_retries=5):
     """
-    Calls Gemini API using a true Round-Robin key rotation algorithm.
+    Calls Gemini API using an enhanced Round-Robin key rotation and multi-model fallback algorithm.
     - Evenly balances API requests across all available GEMINI_API_KEYS.
+    - Uses 'gemini-flash-latest' and falls back to 'gemini-3.5-flash-lite' to avoid 429 free-tier daily limits.
     - Tracks cooldowns on 429 quota limits so subsequent calls skip exhausted keys.
-    - If a key encounters 429 / Quota Limit, instantly fails over to the next key.
-    - Only pauses if all keys in the pool are quota-limited.
+    - If a key encounters 429 / Quota Limit, instantly fails over to the next key or fallback model.
     """
     keys = get_gemini_api_keys()
     if not keys:
@@ -109,7 +117,7 @@ def execute_gemini_with_retry(prompt, model_name=None, max_retries=5):
     cooldowns = {k: exp for k, exp in cooldowns.items() if exp > now}
 
     start_index = int(state.get("next_index", 0)) % num_keys
-    # Advance the round-robin cursor for the next request
+    # Advance the round-robin cursor for the next request to balance load
     state["next_index"] = (start_index + 1) % num_keys
     state["cooldowns"] = cooldowns
     _save_rr_state(state)
@@ -120,15 +128,20 @@ def execute_gemini_with_retry(prompt, model_name=None, max_retries=5):
     # Separate into ready keys and keys on cooldown
     ready_keys = [k for k in candidate_keys if k not in cooldowns]
     cooling_keys = [k for k in candidate_keys if k in cooldowns]
-    ordered_keys = ready_keys + cooling_keys
+    ordered_keys = ready_keys + cooling_keys if ready_keys else cooling_keys
 
-    primary_model = model_name or get_gemini_model() or "gemini-2.5-flash"
-    last_error = None
+    # Model fallback hierarchy: prefer high-quota flash models
+    primary_model = model_name or get_gemini_model() or "gemini-flash-latest"
+    models_to_try = [primary_model]
+    for alt_model in ["gemini-flash-latest", "gemini-3.5-flash-lite", "gemini-2.5-flash"]:
+        if alt_model not in models_to_try:
+            models_to_try.append(alt_model)
 
     first_key_num = keys.index(ordered_keys[0]) + 1
-    print(f"[LOG] Gemini Round-Robin: {num_keys} key(s) in pool ({len(ready_keys)} active). Starting with Key #{first_key_num}...")
+    print(f"[LOG] Gemini Load-Balancer: {num_keys} key(s) in pool ({len(ready_keys)} active). Starting with Key #{first_key_num} (Model: {models_to_try[0]})...")
 
-    # Cycle through the ordered keys
+    last_error = None
+
     for attempt_round in range(1, max_retries + 1):
         all_keys_quota_limited = True
         quota_wait_sec = 60
@@ -138,57 +151,68 @@ def execute_gemini_with_retry(prompt, model_name=None, max_retries=5):
             masked_key = current_key[:6] + "..." + current_key[-4:] if len(current_key) > 10 else "***"
             key_num = keys.index(current_key) + 1
 
-            try:
-                print(f"[LOG] Querying Gemini model '{primary_model}' (Key #{key_num}: {masked_key}, round {attempt_round}/{max_retries})...")
-                model = genai.GenerativeModel(primary_model)
-                response = model.generate_content(prompt)
-                if response and response.text:
-                    # Clear cooldown on success
-                    if current_key in cooldowns:
-                        cooldowns.pop(current_key, None)
+            for active_model in models_to_try:
+                try:
+                    print(f"[LOG] Querying Gemini model '{active_model}' (Key #{key_num}: {masked_key}, round {attempt_round}/{max_retries})...")
+                    model = genai.GenerativeModel(active_model)
+                    response = model.generate_content(prompt)
+                    if response and response.text:
+                        # Clear cooldown on success
+                        if current_key in cooldowns:
+                            cooldowns.pop(current_key, None)
+                            state["cooldowns"] = cooldowns
+                            _save_rr_state(state)
+                        return response.text.strip()
+                    raise ValueError("Empty response received from Gemini.")
+                except Exception as e:
+                    err_str = str(e)
+                    last_error = e
+
+                    is_rate_limit = "429" in err_str or "ResourceExhausted" in err_str or "quota" in err_str.lower()
+                    is_daily_limit = ("GenerateRequestsPerDay" in err_str) or ("free_tier_requests" in err_str) or ("limit: 20" in err_str)
+
+                    if is_rate_limit:
+                        print(f"[LOG] Gemini 429 / Quota Limit on Key #{key_num} ({masked_key}) with model '{active_model}'.")
+                        
+                        # If it's a daily limit for this specific model, try the next fallback model on this key immediately
+                        if is_daily_limit and active_model != models_to_try[-1]:
+                            next_model = models_to_try[models_to_try.index(active_model) + 1]
+                            print(f"[LOG] Model quota exhausted on Key #{key_num}. Instant model failover -> trying '{next_model}'...")
+                            continue
+
+                        # Parse suggested retry delay
+                        sleep_match = re.search(r"retry_delay\s*\{\s*seconds:\s*(\d+)", err_str)
+                        retry_seconds_match = re.search(r"retry in ([0-9.]+)s", err_str)
+                        if sleep_match:
+                            quota_wait_sec = min(65, int(sleep_match.group(1)) + 2)
+                        elif retry_seconds_match:
+                            quota_wait_sec = min(65, int(float(retry_seconds_match.group(1))) + 2)
+                        elif is_daily_limit:
+                            quota_wait_sec = 1800  # 30 min cooldown on daily exhaustion
+
+                        # Put key on cooldown
+                        cooldowns[current_key] = time.time() + quota_wait_sec
                         state["cooldowns"] = cooldowns
                         _save_rr_state(state)
-                    return response.text.strip()
-                raise ValueError("Empty response received from Gemini.")
-            except Exception as e:
-                err_str = str(e)
-                last_error = e
 
-                is_rate_limit = "429" in err_str or "ResourceExhausted" in err_str or "quota" in err_str.lower()
-
-                if is_rate_limit:
-                    print(f"[LOG] Gemini 429 / Quota Limit on Key #{key_num} ({masked_key}).")
-                    # Parse suggested retry delay
-                    sleep_match = re.search(r"retry_delay\s*\{\s*seconds:\s*(\d+)", err_str)
-                    retry_seconds_match = re.search(r"retry in ([0-9.]+)s", err_str)
-                    if sleep_match:
-                        quota_wait_sec = min(65, int(sleep_match.group(1)) + 2)
-                    elif retry_seconds_match:
-                        quota_wait_sec = min(65, int(float(retry_seconds_match.group(1))) + 2)
-
-                    # Put key on cooldown
-                    cooldowns[current_key] = time.time() + quota_wait_sec
-                    state["cooldowns"] = cooldowns
-                    _save_rr_state(state)
-
-                    if key_idx < len(ordered_keys) - 1:
-                        next_key = ordered_keys[key_idx + 1]
-                        next_num = keys.index(next_key) + 1
-                        print(f"[LOG] Instant round-robin failover -> switching to Key #{next_num} immediately.")
-                        continue
-                else:
-                    # Non-rate-limit error (e.g., temporary network error)
-                    all_keys_quota_limited = False
-                    print(f"[LOG] Gemini request on Key #{key_num} failed: {e}")
-                    if key_idx < len(ordered_keys) - 1:
-                        print(f"[LOG] Rotating to next key in pool...")
-                        continue
+                        # Fail over to next key
+                        if key_idx < len(ordered_keys) - 1:
+                            next_key = ordered_keys[key_idx + 1]
+                            next_num = keys.index(next_key) + 1
+                            print(f"[LOG] Instant round-robin failover -> switching to Key #{next_num} immediately.")
+                        break
+                    else:
+                        # Non-rate-limit error (e.g. temporary network error)
+                        all_keys_quota_limited = False
+                        print(f"[LOG] Gemini request on Key #{key_num} failed ({active_model}): {e}")
+                        break
 
         # If all keys were exhausted in this round, pause before retrying the pool
         if attempt_round < max_retries:
             if all_keys_quota_limited:
-                print(f"[LOG] All {num_keys} Gemini keys reached quota limit. Pausing {quota_wait_sec}s for free-tier refresh...")
-                time.sleep(quota_wait_sec)
+                wait_time = min(quota_wait_sec, 60)
+                print(f"[LOG] All {num_keys} Gemini keys reached quota limit. Pausing {wait_time}s for refresh...")
+                time.sleep(wait_time)
             else:
                 time.sleep(2 * attempt_round)
 
@@ -197,14 +221,15 @@ def execute_gemini_with_retry(prompt, model_name=None, max_retries=5):
 
 def select_top_10_news(candidate_items, subject, video_type="tech_news", count=None):
     """
-    Uses Gemini AI to evaluate candidate RSS news items and select the TOP 3
-    (or custom count) highest Click-Through Rate (CTR) and viral engagement stories.
+    Uses Gemini AI to evaluate candidate RSS news items and select the TOP 10 news stories
+    in a SINGLE API request. The first 3 stories (items #1, #2, #3) are ranked as the Top 3
+    viral stories to be converted into shorts.
     """
     if count is None:
         try:
-            count = int(os.getenv("FACTS_PER_VIDEO", 3))
+            count = int(os.getenv("FACTS_PER_VIDEO", 10))
         except Exception:
-            count = 3
+            count = 10
 
     if not candidate_items:
         return []
@@ -212,9 +237,9 @@ def select_top_10_news(candidate_items, subject, video_type="tech_news", count=N
     if len(candidate_items) <= count:
         return candidate_items
 
-    # Format candidate list for Gemini
+    # Format candidate list for Gemini (up to 40 candidates evaluated at once)
     formatted_candidates = []
-    for idx, item in enumerate(candidate_items[:35], 1):
+    for idx, item in enumerate(candidate_items[:40], 1):
         formatted_candidates.append(
             f"Item #{idx}:\nTitle: {item.get('title')}\nDescription: {item.get('description', '')[:300]}\nSource: {item.get('source')}\nCategory: {item.get('category')}\n"
         )
@@ -229,9 +254,10 @@ Category: {video_type}
 
 Selection Rules:
 1. Top Trending Appeal: Select the top {count} most trending, high-CTR stories that make viewers immediately stop, click, and watch (major breaking developments, high-stakes decisions, breakthrough AI/tech, dramatic public moves, explosive updates).
-2. True Impact & Significance: Prioritize genuine breaking news, major national/global affairs, and high-interest topics trending right now.
-3. Reject Low-Value Noise: Filter out routine PR updates, trivial corporate announcements, and boring fluff.
-4. Exactly {count} Stories: Select exactly {count} distinct top trending stories.
+2. Rank by Virality: Rank them #1 through #{count} in descending order of CTR and viral hook. The first 3 stories (items #1, #2, and #3) MUST be the absolute top 3 most sensational, viral-worthy breaking stories, as they will also be converted into dedicated YouTube Shorts.
+3. True Impact & Significance: Prioritize genuine breaking news, major national/global affairs, and high-interest topics trending right now.
+4. Reject Low-Value Noise: Filter out routine PR updates, trivial corporate announcements, and boring fluff.
+5. Exactly {count} Stories: Select exactly {count} distinct top trending stories.
 
 Return ONLY a valid JSON array of {count} objects in this exact structure:
 [
@@ -241,8 +267,9 @@ Return ONLY a valid JSON array of {count} objects in this exact structure:
     "description": "2 to 3 sentences explaining what happened and why it matters",
     "source": "Source outlet name",
     "category": "Category name",
-    "ctr_score": 95,
-    "viral_hook": "Short 1-sentence explanation of why this story has high viewer appeal"
+    "ctr_score": 98,
+    "viral_hook": "Short 1-sentence explanation of why this story has high viewer appeal",
+    "is_top_short": true
   }}
 ]
 Do not wrap in markdown or explanation. Return JSON only.
@@ -251,7 +278,7 @@ CANDIDATE STORIES:
 {candidates_text}
 """
 
-    print(f"[LOG] Running Gemini AI to evaluate candidate pool and select Top {count} High-CTR stories...")
+    print(f"[LOG] Running Gemini AI to evaluate candidate pool and select Top {count} High-CTR stories in 1 request (Top 3 designated for shorts)...")
     try:
         raw_response = execute_gemini_with_retry(prompt)
         cleaned = clean_json_response(raw_response)
@@ -266,12 +293,15 @@ CANDIDATE STORIES:
                     "source": entry.get("source", "ByteWire News"),
                     "category": entry.get("category", video_type),
                     "ctr_score": entry.get("ctr_score", 90),
-                    "viral_hook": entry.get("viral_hook", "")
+                    "viral_hook": entry.get("viral_hook", ""),
+                    "is_top_short": entry.get("is_top_short", False)
                 })
 
-            print(f"[LOG] Gemini successfully selected Top {len(selected_items)} high-CTR stories:")
+            print(f"[LOG] Gemini successfully selected Top {len(selected_items)} stories in single request:")
             for i, itm in enumerate(selected_items, 1):
-                print(f"  {i}. [CTR: {itm.get('ctr_score', 'N/A')}] {itm['title']} ({itm['source']})")
+                short_tag = " [TOP 3 SHORT]" if i <= 3 else ""
+                safe_title = itm.get('title', '').encode('ascii', errors='replace').decode('ascii')
+                print(f"  {i}. [CTR: {itm.get('ctr_score', 'N/A')}]{short_tag} {safe_title} ({itm['source']})")
             return selected_items
 
     except Exception as e:
@@ -338,7 +368,7 @@ NEWS STORIES:
     return execute_gemini_with_retry(prompt)
 
 
-def generate_scene_plan(script, max_scenes=15):
+def generate_scene_plan(script, max_scenes=25):
     prompt = f"""
 You are a professional faceless YouTube video editor.
 Analyze this script and create a cinematic background video plan.

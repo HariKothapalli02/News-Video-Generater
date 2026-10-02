@@ -125,8 +125,8 @@ def main():
 
                 print("@STATUS: Selecting News", flush=True)
                 print("@PROGRESS: 20", flush=True)
-                facts_count = int(os.getenv("FACTS_PER_VIDEO", 3))
-                print(f"[LOG] Evaluating candidate stories with Gemini AI for Top {facts_count} High-CTR & viral appeal...", flush=True)
+                facts_count = int(os.getenv("FACTS_PER_VIDEO", 10))
+                print(f"[LOG] Evaluating candidate stories with Gemini AI for Top {facts_count} High-CTR & viral appeal (Top 3 designated for Shorts)...", flush=True)
                 top_stories = gemini.select_top_10_news(candidate_items, subject, video_type, count=facts_count)
                 print(f"[LOG] Selected {len(top_stories)} top stories. Generating broadcast script...", flush=True)
                 script_text = gemini.generate_script(top_stories, subject, language, custom_prompt)
@@ -295,15 +295,15 @@ def main():
         # ======================================================================
         # STAGE 7: YOUTUBE METADATA & 9:16 SHORTS EXTRACTION
         # ======================================================================
-        print("[LOG] Parsing fact chapters and detecting timestamps for exactly 3 shorts...")
-        facts_parsed = shorts.parse_facts_from_script(script_text)[:3]
+        print("[LOG] Parsing all 10 fact chapters and detecting timestamps for video timeline and metadata...")
+        facts_parsed = shorts.parse_facts_from_script(script_text)
         fact_segments = shorts.detect_fact_timestamps(facts_parsed, audio_words, audio_duration + intro_offset, intro_offset)
 
-        # Output fact segments for backend storage
+        # Output fact segments for backend storage (all 10 facts)
         safe_facts_json = json.dumps(fact_segments).replace("\n", " ")
         print(f"@FACTS: {safe_facts_json}", flush=True)
 
-        # Generate Full Video YouTube Metadata in 1 single Gemini API call
+        # Generate Full Video YouTube Metadata in 1 single Gemini API call with all 10 chapters
         print("@STATUS: Generating Metadata", flush=True)
         try:
             yt_meta = gemini.generate_video_metadata(subject, script_text, fact_segments, language)
@@ -312,11 +312,11 @@ def main():
         except Exception as e:
             print(f"[LOG] Warning generating YouTube metadata: {e}", flush=True)
 
-        # Extract vertical 9:16 shorts if requested (strictly 3 shorts)
+        # Extract vertical 9:16 shorts if requested (strictly top 3 shorts from the 10 news)
         if generate_shorts:
             print("@STATUS: Generating Shorts", flush=True)
             print("@PROGRESS: 92", flush=True)
-            print("[LOG] Extracting exactly 3 vertical 9:16 Shorts from video and generating dedicated metadata...", flush=True)
+            print("[LOG] Extracting top 3 vertical 9:16 Shorts from the 10 news stories and generating dedicated metadata in 1 request...", flush=True)
             try:
                 shorts_result = shorts.extract_all_shorts(
                     job_id=job_id,

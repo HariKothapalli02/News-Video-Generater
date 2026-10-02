@@ -351,7 +351,7 @@ router.post("/restart-service", auth, async (req, res) => {
 });
 
 // @route   PATCH /api/video/:id/youtube
-// @desc    Record YouTube Video ID and URL after successful upload
+// @desc    Record YouTube Video ID and URL after successful upload (or manual upload)
 // @access  Private
 router.patch("/video/:id/youtube", auth, async (req, res) => {
   try {
@@ -364,10 +364,118 @@ router.patch("/video/:id/youtube", auth, async (req, res) => {
     if (youtubeUrl || youtubeVideoId) {
       video.youtubeUrl = youtubeUrl || `https://www.youtube.com/watch?v=${youtubeVideoId}`;
     }
+    video.isPosted = true;
+    video.postedAt = new Date();
     await video.save();
-    return res.json({ msg: "YouTube status updated successfully.", videoId: video._id, youtubeVideoId: video.youtubeVideoId, youtubeUrl: video.youtubeUrl });
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("video_updated", video);
+      io.emit("job_update", video);
+    }
+    return res.json({
+      msg: "YouTube status updated successfully.",
+      videoId: video._id,
+      isPosted: video.isPosted,
+      youtubeVideoId: video.youtubeVideoId,
+      youtubeUrl: video.youtubeUrl
+    });
   } catch (err) {
     return res.status(500).json({ msg: "Server error saving YouTube status." });
+  }
+});
+
+// @route   PATCH /api/video/:id/short/:shortIndex/youtube
+// @desc    Record YouTube Short ID and URL after upload
+// @access  Private
+router.patch("/video/:id/short/:shortIndex/youtube", auth, async (req, res) => {
+  try {
+    const { youtubeShortId, youtubeShortUrl } = req.body;
+    const video = await Video.findById(req.params.id);
+    if (!video) {
+      return res.status(404).json({ msg: "Video record not found." });
+    }
+    const shortIdx = parseInt(req.params.shortIndex, 10);
+    const short = (video.shorts || []).find((s, idx) => s.factIndex === shortIdx || idx + 1 === shortIdx);
+    if (!short) {
+      return res.status(404).json({ msg: `Short #${shortIdx} not found.` });
+    }
+
+    if (youtubeShortId) short.youtubeShortId = youtubeShortId;
+    if (youtubeShortUrl || youtubeShortId) {
+      short.youtubeShortUrl = youtubeShortUrl || `https://www.youtube.com/shorts/${youtubeShortId}`;
+    }
+    short.isPosted = true;
+    short.postedAt = new Date();
+    await video.save();
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("video_updated", video);
+      io.emit("job_update", video);
+    }
+    return res.json({
+      msg: `Short #${shortIdx} YouTube status updated successfully.`,
+      videoId: video._id,
+      shortIndex: shortIdx,
+      isPosted: short.isPosted,
+      youtubeShortId: short.youtubeShortId,
+      youtubeShortUrl: short.youtubeShortUrl
+    });
+  } catch (err) {
+    return res.status(500).json({ msg: "Server error saving Short YouTube status." });
+  }
+});
+
+// @route   PATCH /api/video/:id/mark-posted
+// @desc    Manually mark full video or short as posted (e.g. manual upload to YouTube Studio)
+// @access  Private
+router.patch("/video/:id/mark-posted", auth, async (req, res) => {
+  try {
+    const { shortIndex, youtubeUrl, youtubeVideoId, isPosted = true } = req.body;
+    const video = await Video.findById(req.params.id);
+    if (!video) {
+      return res.status(404).json({ msg: "Video record not found." });
+    }
+
+    if (shortIndex) {
+      const sIdx = parseInt(shortIndex, 10);
+      const short = (video.shorts || []).find((s, idx) => s.factIndex === sIdx || idx + 1 === sIdx);
+      if (!short) {
+        return res.status(404).json({ msg: `Short #${sIdx} not found.` });
+      }
+      short.isPosted = isPosted;
+      short.postedAt = isPosted ? new Date() : null;
+      if (youtubeVideoId) short.youtubeShortId = youtubeVideoId;
+      if (youtubeUrl) {
+        short.youtubeShortUrl = youtubeUrl;
+      } else if (youtubeVideoId) {
+        short.youtubeShortUrl = `https://www.youtube.com/shorts/${youtubeVideoId}`;
+      }
+    } else {
+      video.isPosted = isPosted;
+      video.postedAt = isPosted ? new Date() : null;
+      if (youtubeVideoId) video.youtubeVideoId = youtubeVideoId;
+      if (youtubeUrl) {
+        video.youtubeUrl = youtubeUrl;
+      } else if (youtubeVideoId) {
+        video.youtubeUrl = `https://www.youtube.com/watch?v=${youtubeVideoId}`;
+      }
+    }
+
+    await video.save();
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("video_updated", video);
+      io.emit("job_update", video);
+    }
+
+    return res.json({
+      msg: shortIndex ? `Short #${shortIndex} marked as posted.` : "Full video marked as posted.",
+      video
+    });
+  } catch (err) {
+    return res.status(500).json({ msg: "Server error updating posted status.", error: err.message });
   }
 });
 
@@ -674,15 +782,18 @@ router.post("/video/:id/post", auth, async (req, res) => {
       ytId = respObj?.youtubeVideoId || respObj?.uploadId || respObj?.id || "";
     }
 
+    video.isPosted = true;
+    video.postedAt = new Date();
     if (ytId) {
       video.youtubeVideoId = ytId;
       video.youtubeUrl = `https://www.youtube.com/watch?v=${ytId}`;
-      await video.save();
     }
+    await video.save();
 
     const io = req.app.get("io");
     if (io) {
       io.emit("video_updated", video);
+      io.emit("job_update", video);
     }
 
     return res.json({

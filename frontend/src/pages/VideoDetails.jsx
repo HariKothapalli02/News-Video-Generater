@@ -31,8 +31,13 @@ export default function VideoDetails({ id, onBack }) {
   const [generatingMetadata, setGeneratingMetadata] = useState(false);
   const [postingShortIndex, setPostingShortIndex] = useState(null);
   const [postStatus, setPostStatus] = useState({});
+  const [postingFullVideo, setPostingFullVideo] = useState(false);
+  const [fullVideoPostStatus, setFullVideoPostStatus] = useState(null);
+  const [manualUrlInput, setManualUrlInput] = useState("");
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [manualModalTarget, setManualModalTarget] = useState(null);
 
-  const { retryVideo, getHeaders, generateShorts, generateMetadata, postReel, activeJob } = useVideoStore();
+  const { retryVideo, getHeaders, generateShorts, generateMetadata, postReel, postFullVideo, markVideoPosted, activeJob } = useVideoStore();
 
   const fetchVideoDetails = async () => {
     try {
@@ -158,6 +163,90 @@ export default function VideoDetails({ id, onBack }) {
     }
   };
 
+  const handlePostFullVideo = async () => {
+    if (!video) return;
+    setPostingFullVideo(true);
+    setFullVideoPostStatus(null);
+    try {
+      const data = await postFullVideo(video._id);
+      const ytId = data?.youtubeVideoId;
+      const ytUrl = data?.youtubeUrl || (ytId ? `https://www.youtube.com/watch?v=${ytId}` : null);
+
+      setVideo((prev) => ({
+        ...prev,
+        isPosted: true,
+        postedAt: new Date(),
+        youtubeVideoId: ytId || prev.youtubeVideoId,
+        youtubeUrl: ytUrl || prev.youtubeUrl
+      }));
+
+      setFullVideoPostStatus({
+        status: "success",
+        msg: data?.msg || "Full video published to YouTube!",
+        url: ytUrl
+      });
+    } catch (err) {
+      console.error("Error posting full video:", err);
+      setFullVideoPostStatus({
+        status: "error",
+        msg: err.message || "Failed to post full video to YouTube. Check YouTube/n8n connection."
+      });
+    } finally {
+      setPostingFullVideo(false);
+    }
+  };
+
+  const handleManualMarkPosted = async (targetShortIndex = null) => {
+    if (!video) return;
+    const url = manualUrlInput.trim();
+    try {
+      let ytId = "";
+      if (url) {
+        const m = url.match(/(?:watch\?v=|shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+        if (m) ytId = m[1];
+      }
+      await markVideoPosted(video._id, {
+        isPosted: true,
+        youtubeUrl: url,
+        youtubeVideoId: ytId,
+        shortIndex: targetShortIndex
+      });
+
+      if (targetShortIndex) {
+        setVideo((prev) => {
+          if (!prev?.shorts) return prev;
+          const updatedShorts = prev.shorts.map((s, idx) => {
+            if (s.factIndex === targetShortIndex || idx + 1 === targetShortIndex) {
+              return {
+                ...s,
+                isPosted: true,
+                postedAt: new Date(),
+                youtubeShortId: ytId || s.youtubeShortId,
+                youtubeShortUrl: url || s.youtubeShortUrl || (ytId ? `https://www.youtube.com/shorts/${ytId}` : "")
+              };
+            }
+            return s;
+          });
+          return { ...prev, shorts: updatedShorts };
+        });
+      } else {
+        setVideo((prev) => ({
+          ...prev,
+          isPosted: true,
+          postedAt: new Date(),
+          youtubeVideoId: ytId || prev.youtubeVideoId,
+          youtubeUrl: url || prev.youtubeUrl || (ytId ? `https://www.youtube.com/watch?v=${ytId}` : "")
+        }));
+      }
+
+      setShowManualModal(false);
+      setManualUrlInput("");
+      setManualModalTarget(null);
+    } catch (err) {
+      alert("Error marking as posted: " + err.message);
+    }
+  };
+
   if (loading) {
     return <Loader label="QUERYING ARCHIVE METADATA..." />;
   }
@@ -218,7 +307,38 @@ export default function VideoDetails({ id, onBack }) {
         </div>
 
         {/* Global Action Header */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Post Full Video Button */}
+          {isCompleted && (
+            <button
+              onClick={handlePostFullVideo}
+              disabled={postingFullVideo}
+              title="Post the full 16:9 HD video directly to YouTube with complete metadata"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-none text-xs font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                video.isPosted || video.youtubeVideoId
+                  ? "bg-red-950 hover:bg-red-900 text-red-200 border border-red-800"
+                  : "bg-red-600 hover:bg-red-500 text-white border border-red-600 shadow-sm"
+              }`}
+            >
+              {postingFullVideo ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin rounded-full" />
+                  <span>Posting Video...</span>
+                </>
+              ) : video.isPosted || video.youtubeVideoId ? (
+                <>
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>Re-Post Full Video</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Post Full Video</span>
+                </>
+              )}
+            </button>
+          )}
+
           {isCompleted && !hasShorts && (
             <button
               onClick={handleGenerateShorts}
@@ -282,6 +402,99 @@ export default function VideoDetails({ id, onBack }) {
             )}
           </div>
 
+          {/* Full Video YouTube Publishing Action & Status Card */}
+          {isCompleted && (
+            <div className="bg-black border border-zinc-800 p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
+                  YouTube Broadcast (Full 16:9 Video)
+                </span>
+                {(video.isPosted || video.youtubeVideoId || video.youtubeUrl) ? (
+                  <span className="flex items-center gap-1.5 text-[9px] font-mono text-emerald-400 font-bold uppercase">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Published
+                  </span>
+                ) : (
+                  <span className="text-[9px] font-mono text-amber-400 font-bold uppercase">
+                    Ready to Publish
+                  </span>
+                )}
+              </div>
+
+              {/* YouTube Link if published */}
+              {(video.youtubeUrl || video.youtubeVideoId) && (
+                <div className="flex items-center justify-between text-[11px] bg-red-950/30 border border-red-900/60 px-2.5 py-1.5 text-zinc-300">
+                  <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>PUBLISHED ON YOUTUBE</span>
+                  </div>
+                  <a
+                    href={video.youtubeUrl || `https://www.youtube.com/watch?v=${video.youtubeVideoId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-red-400 hover:text-red-300 font-bold inline-flex items-center gap-1 underline"
+                  >
+                    <span>Watch Full Video</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              )}
+
+              {/* Notification Banner on Post */}
+              {fullVideoPostStatus && (
+                <div className={`p-2 text-xs font-mono border ${
+                  fullVideoPostStatus.status === "success"
+                    ? "bg-emerald-950/50 border-emerald-800 text-emerald-300"
+                    : "bg-red-950/50 border-red-800 text-red-300"
+                }`}>
+                  <p>{fullVideoPostStatus.msg}</p>
+                </div>
+              )}
+
+              {/* Action Buttons: Post Full Video & Mark as Uploaded */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={handlePostFullVideo}
+                  disabled={postingFullVideo}
+                  className={`py-2 px-2.5 text-center font-bold text-xs uppercase tracking-wider transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                    video.isPosted || video.youtubeVideoId
+                      ? "bg-red-950 hover:bg-red-900 text-red-200 border border-red-800"
+                      : "bg-red-600 hover:bg-red-500 text-white border border-red-600 shadow-sm"
+                  }`}
+                >
+                  {postingFullVideo ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin rounded-full" />
+                      <span>Posting...</span>
+                    </>
+                  ) : video.isPosted || video.youtubeVideoId ? (
+                    <>
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>Re-Post Video</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Post Full Video</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  onClick={() => {
+                    setManualModalTarget(null);
+                    setManualUrlInput(video.youtubeUrl || (video.youtubeVideoId ? `https://www.youtube.com/watch?v=${video.youtubeVideoId}` : ""));
+                    setShowManualModal(true);
+                  }}
+                  className="py-2 px-2.5 text-center bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-white font-bold text-xs uppercase transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                  title="If you manually uploaded this video to YouTube outside ByteWire, link it here so automated scheduling skips it"
+                >
+                  <span>Manual Upload</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Quick Meta Stats */}
           <div className="bg-black border border-zinc-800 p-3 grid grid-cols-3 gap-2 text-center text-xs font-mono">
             <div>
@@ -294,7 +507,7 @@ export default function VideoDetails({ id, onBack }) {
             </div>
             <div>
               <span className="text-[10px] text-zinc-500 uppercase block">Shorts Count</span>
-              <span className="font-bold text-white">{video.shorts?.length || 0} / 10</span>
+              <span className="font-bold text-white">{video.shorts?.length || 0} / 3</span>
             </div>
           </div>
 
@@ -609,6 +822,19 @@ export default function VideoDetails({ id, onBack }) {
                                     <span>Download (9:16)</span>
                                   </a>
                                 </div>
+
+                                <div className="text-right">
+                                  <button
+                                    onClick={() => {
+                                      setManualModalTarget(short.factIndex || idx + 1);
+                                      setManualUrlInput(short.youtubeShortUrl || (short.youtubeShortId ? `https://www.youtube.com/shorts/${short.youtubeShortId}` : ""));
+                                      setShowManualModal(true);
+                                    }}
+                                    className="text-[10px] text-zinc-500 hover:text-zinc-300 underline cursor-pointer"
+                                  >
+                                    {short.isPosted ? "Edit Manual Upload Link" : "Mark as Manually Uploaded"}
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -630,14 +856,30 @@ export default function VideoDetails({ id, onBack }) {
                     <h4 className="text-white font-bold uppercase text-xs">Full Video YouTube SEO Metadata</h4>
                     <p className="text-[11px] text-zinc-400">Generated in 1 Gemini AI request: Primary Title, A/B Variations, Chapters Description, and Tags</p>
                   </div>
-                  <button
-                    onClick={handleGenerateMetadata}
-                    disabled={generatingMetadata}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-zinc-900 hover:bg-white hover:text-black border border-zinc-700 text-white text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>{generatingMetadata ? "Generating..." : "Regenerate Metadata"}</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {isCompleted && (
+                      <button
+                        onClick={handlePostFullVideo}
+                        disabled={postingFullVideo}
+                        className={`flex items-center gap-1.5 px-3 py-1 text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer ${
+                          video.isPosted || video.youtubeVideoId
+                            ? "bg-red-950 hover:bg-red-900 text-red-200 border border-red-800"
+                            : "bg-red-600 hover:bg-red-500 text-white shadow-sm"
+                        }`}
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span>{postingFullVideo ? "Posting..." : video.isPosted ? "Re-Post Full Video" : "Publish Full Video"}</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={handleGenerateMetadata}
+                      disabled={generatingMetadata}
+                      className="flex items-center gap-1.5 px-3 py-1 bg-zinc-900 hover:bg-white hover:text-black border border-zinc-700 text-white text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>{generatingMetadata ? "Generating..." : "Regenerate Metadata"}</span>
+                    </button>
+                  </div>
                 </div>
 
                 {!hasMetadata ? (
@@ -809,6 +1051,51 @@ export default function VideoDetails({ id, onBack }) {
           </div>
         </div>
       </div>
+      {/* Manual Upload Linking Modal */}
+      {showManualModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-zinc-950 border border-zinc-700 max-w-md w-full p-5 space-y-4 font-mono shadow-2xl">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+              <h3 className="text-white text-sm font-bold uppercase">
+                {manualModalTarget ? `Link Manual Short #${manualModalTarget}` : "Link Manual Full Video Upload"}
+              </h3>
+              <button
+                onClick={() => setShowManualModal(false)}
+                className="text-zinc-500 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              If you manually uploaded this {manualModalTarget ? "Short" : "Full Video"} to YouTube Studio, paste the YouTube URL or Video ID below. ByteWire will mark it as published and skip automatic scheduled uploads.
+            </p>
+            <div className="space-y-1">
+              <label className="text-[10px] text-zinc-500 uppercase font-bold">YouTube URL or ID</label>
+              <input
+                type="text"
+                value={manualUrlInput}
+                onChange={(e) => setManualUrlInput(e.target.value)}
+                placeholder={manualModalTarget ? "https://youtube.com/shorts/..." : "https://youtube.com/watch?v=..."}
+                className="w-full bg-black border border-zinc-700 px-3 py-2 text-white text-xs focus:border-white focus:outline-none"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800">
+              <button
+                onClick={() => setShowManualModal(false)}
+                className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs uppercase cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleManualMarkPosted(manualModalTarget)}
+                className="px-4 py-1.5 bg-white hover:bg-zinc-200 text-black font-bold text-xs uppercase cursor-pointer"
+              >
+                Save & Skip Auto-Publish
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
