@@ -9,6 +9,7 @@ import {
   FileVideo,
   Copy,
   Check,
+  CheckCircle,
   Sparkles,
   Scissors,
   Tag,
