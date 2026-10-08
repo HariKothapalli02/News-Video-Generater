@@ -119,6 +119,11 @@ export default function VideoDetails({ id, onBack }) {
 
   const handlePostReel = async (shortIdx) => {
     if (!video) return;
+    const shortObj = (video.shorts || []).find((s, idx) => (s.factIndex === shortIdx || idx + 1 === shortIdx));
+    if (shortObj?.isPosted || shortObj?.youtubeShortId) {
+      const confirmReupload = window.confirm(`Short #${shortIdx} is ALREADY published to YouTube. Are you sure you want to re-upload it?`);
+      if (!confirmReupload) return;
+    }
     setPostingShortIndex(shortIdx);
     try {
       const data = await postReel(video._id, shortIdx);
@@ -132,6 +137,7 @@ export default function VideoDetails({ id, onBack }) {
             return {
               ...s,
               isPosted: true,
+              isUploading: false,
               postedAt: new Date(),
               youtubeShortId: ytId || s.youtubeShortId,
               youtubeShortUrl: ytUrl || s.youtubeShortUrl
@@ -166,6 +172,10 @@ export default function VideoDetails({ id, onBack }) {
 
   const handlePostFullVideo = async () => {
     if (!video) return;
+    if (video.isPosted || video.youtubeVideoId) {
+      const confirmReupload = window.confirm("This full video is ALREADY published to YouTube. Are you sure you want to re-upload it?");
+      if (!confirmReupload) return;
+    }
     setPostingFullVideo(true);
     setFullVideoPostStatus(null);
     try {
@@ -176,6 +186,7 @@ export default function VideoDetails({ id, onBack }) {
       setVideo((prev) => ({
         ...prev,
         isPosted: true,
+        isUploading: false,
         postedAt: new Date(),
         youtubeVideoId: ytId || prev.youtubeVideoId,
         youtubeUrl: ytUrl || prev.youtubeUrl
@@ -344,19 +355,19 @@ export default function VideoDetails({ id, onBack }) {
               title="Post the full 16:9 HD video directly to YouTube with complete metadata"
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-none text-xs font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                 video.isPosted || video.youtubeVideoId
-                  ? "bg-red-950 hover:bg-red-900 text-red-200 border border-red-800"
+                  ? "bg-emerald-950/80 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-700/60"
                   : "bg-red-600 hover:bg-red-500 text-white border border-red-600 shadow-sm"
               }`}
             >
-              {postingFullVideo ? (
+              {postingFullVideo || video.isUploading ? (
                 <>
                   <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin rounded-full" />
                   <span>Posting Video...</span>
                 </>
               ) : video.isPosted || video.youtubeVideoId ? (
                 <>
-                  <Share2 className="w-3.5 h-3.5" />
-                  <span>Re-Post Full Video</span>
+                  <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Published to YouTube</span>
                 </>
               ) : (
                 <>
@@ -502,19 +513,19 @@ export default function VideoDetails({ id, onBack }) {
                   disabled={postingFullVideo}
                   className={`py-2 px-2.5 text-center font-bold text-xs uppercase tracking-wider transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                     video.isPosted || video.youtubeVideoId
-                      ? "bg-red-950 hover:bg-red-900 text-red-200 border border-red-800"
+                      ? "bg-emerald-950/80 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-700/60"
                       : "bg-red-600 hover:bg-red-500 text-white border border-red-600 shadow-sm"
                   }`}
                 >
-                  {postingFullVideo ? (
+                  {postingFullVideo || video.isUploading ? (
                     <>
                       <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin rounded-full" />
                       <span>Posting...</span>
                     </>
                   ) : video.isPosted || video.youtubeVideoId ? (
                     <>
-                      <Share2 className="w-3.5 h-3.5" />
-                      <span>Re-Post Video</span>
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Published ✅</span>
                     </>
                   ) : (
                     <>
@@ -861,19 +872,19 @@ export default function VideoDetails({ id, onBack }) {
                                     title="Publish this individual 9:16 Short to YouTube with full AI title, hashtags, description & tags"
                                     className={`py-2 px-2.5 text-center font-bold text-xs uppercase tracking-wider transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                                       short.youtubeShortId || short.isPosted
-                                        ? "bg-red-950 hover:bg-red-900 text-red-200 border border-red-800"
+                                        ? "bg-emerald-950/80 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-700/60"
                                         : "bg-red-600 hover:bg-red-500 text-white border border-red-600 shadow-sm"
                                     }`}
                                   >
-                                    {postingShortIndex === (short.factIndex || idx + 1) ? (
+                                    {postingShortIndex === (short.factIndex || idx + 1) || short.isUploading ? (
                                       <>
                                         <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin rounded-full" />
                                         <span>Posting...</span>
                                       </>
                                     ) : short.youtubeShortId || short.isPosted ? (
                                       <>
-                                        <Share2 className="w-3.5 h-3.5" />
-                                        <span>Re-Post Reel</span>
+                                        <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                                        <span>Published ✅</span>
                                       </>
                                     ) : (
                                       <>

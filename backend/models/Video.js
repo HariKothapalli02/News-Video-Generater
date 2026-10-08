@@ -122,6 +122,13 @@ const VideoSchema = new mongoose.Schema({
   postedAt: {
     type: Date
   },
+  isUploading: {
+    type: Boolean,
+    default: false
+  },
+  uploadStartedAt: {
+    type: Date
+  },
   disableAutoUpload: {
     type: Boolean,
     default: false
@@ -150,6 +157,8 @@ const VideoSchema = new mongoose.Schema({
       youtubeShortUrl: { type: String, default: "" },
       isPosted: { type: Boolean, default: false },
       postedAt: { type: Date },
+      isUploading: { type: Boolean, default: false },
+      uploadStartedAt: { type: Date },
       createdAt: { type: Date, default: Date.now }
     }
   ],

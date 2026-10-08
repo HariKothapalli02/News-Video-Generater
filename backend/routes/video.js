@@ -565,6 +565,7 @@ router.patch("/video/:id/youtube", auth, async (req, res) => {
       video.youtubeUrl = youtubeUrl || `https://www.youtube.com/watch?v=${youtubeVideoId}`;
     }
     video.isPosted = true;
+    video.isUploading = false;
     video.postedAt = new Date();
     await video.save();
 
@@ -577,6 +578,7 @@ router.patch("/video/:id/youtube", auth, async (req, res) => {
       msg: "YouTube status updated successfully.",
       videoId: video._id,
       isPosted: video.isPosted,
+      isUploading: video.isUploading,
       youtubeVideoId: video.youtubeVideoId,
       youtubeUrl: video.youtubeUrl
     });
@@ -606,6 +608,7 @@ router.patch("/video/:id/short/:shortIndex/youtube", auth, async (req, res) => {
       short.youtubeShortUrl = youtubeShortUrl || `https://www.youtube.com/shorts/${youtubeShortId}`;
     }
     short.isPosted = true;
+    short.isUploading = false;
     short.postedAt = new Date();
     await video.save();
 
@@ -968,13 +971,36 @@ router.post("/video/:id/post", auth, async (req, res) => {
       return res.status(400).json({ msg: "Video must be in 'Completed' status to post to YouTube." });
     }
 
+    if (video.isPosted || video.youtubeVideoId) {
+      return res.status(400).json({ msg: "This video has already been posted to YouTube." });
+    }
+
+    const isUploadingStale = video.uploadStartedAt && (Date.now() - new Date(video.uploadStartedAt).getTime() > 15 * 60 * 1000);
+    if (video.isUploading && !isUploadingStale) {
+      return res.status(409).json({ msg: "This video is currently being uploaded to YouTube. Please wait." });
+    }
+
     const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "videos");
     const filePath = path.resolve(path.join(videoStorage, `${video._id}.mp4`));
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ msg: "Physical video file not found on disk." });
     }
 
+    // Atomically lock video to prevent race condition double-posts
+    video.isUploading = true;
+    video.uploadStartedAt = new Date();
+    await video.save();
+
     const dispatchResult = await dispatchFullVideoToWebhook(video);
+
+    if (!dispatchResult.dispatched && !dispatchResult.timeout) {
+      video.isUploading = false;
+      await video.save();
+      return res.status(502).json({
+        msg: "Failed to dispatch upload to webhook.",
+        reason: dispatchResult.reason || dispatchResult.error
+      });
+    }
 
     let ytId = "";
     if (dispatchResult.response) {
@@ -983,6 +1009,7 @@ router.post("/video/:id/post", auth, async (req, res) => {
     }
 
     video.isPosted = true;
+    video.isUploading = false;
     video.postedAt = new Date();
     if (ytId) {
       video.youtubeVideoId = ytId;
@@ -1008,6 +1035,9 @@ router.post("/video/:id/post", auth, async (req, res) => {
     });
   } catch (err) {
     console.error("Error posting full video:", err);
+    try {
+      await Video.updateOne({ _id: req.params.id }, { isUploading: false });
+    } catch (_) {}
     return res.status(500).json({ msg: "Failed to post full video", error: err.message });
   }
 });
@@ -1028,13 +1058,36 @@ router.post("/video/:id/short/:shortIndex/post", auth, async (req, res) => {
       return res.status(404).json({ msg: `Short #${shortIdx} not found for this video.` });
     }
 
+    if (short.isPosted || short.youtubeShortId) {
+      return res.status(400).json({ msg: `Short #${shortIdx} has already been posted to YouTube.` });
+    }
+
+    const isUploadingStale = short.uploadStartedAt && (Date.now() - new Date(short.uploadStartedAt).getTime() > 15 * 60 * 1000);
+    if (short.isUploading && !isUploadingStale) {
+      return res.status(409).json({ msg: `Short #${shortIdx} is currently being uploaded to YouTube. Please wait.` });
+    }
+
     const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "videos");
     const filePath = path.resolve(path.join(videoStorage, "shorts", `${req.params.id}_short_${shortIdx}.mp4`));
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ msg: `Short MP4 file for Fact #${shortIdx} is not on disk.` });
     }
 
+    // Atomically lock this short to prevent double posts
+    short.isUploading = true;
+    short.uploadStartedAt = new Date();
+    await video.save();
+
     const dispatchResult = await dispatchShortToWebhook({ video, short, shortIdx });
+
+    if (!dispatchResult.dispatched && !dispatchResult.timeout) {
+      short.isUploading = false;
+      await video.save();
+      return res.status(502).json({
+        msg: `Failed to dispatch Short #${shortIdx} to webhook.`,
+        reason: dispatchResult.reason || dispatchResult.error
+      });
+    }
 
     // Check if webhook response returned YouTube short ID directly
     let ytId = "";
@@ -1044,6 +1097,7 @@ router.post("/video/:id/short/:shortIndex/post", auth, async (req, res) => {
     }
 
     short.isPosted = true;
+    short.isUploading = false;
     short.postedAt = new Date();
     if (ytId) {
       short.youtubeShortId = ytId;
@@ -1069,50 +1123,14 @@ router.post("/video/:id/short/:shortIndex/post", auth, async (req, res) => {
     });
   } catch (err) {
     console.error("Error posting reel:", err);
+    try {
+      const shortIdx = parseInt(req.params.shortIndex, 10);
+      await Video.updateOne(
+        { _id: req.params.id, "shorts.factIndex": shortIdx },
+        { $set: { "shorts.$.isUploading": false } }
+      );
+    } catch (_) {}
     return res.status(500).json({ msg: "Failed to post reel", error: err.message });
-  }
-});
-
-// @route   PATCH /api/video/:id/short/:shortIndex/youtube
-// @desc    Record YouTube Short ID and URL after successful upload
-// @access  Private
-router.patch("/video/:id/short/:shortIndex/youtube", auth, async (req, res) => {
-  try {
-    const { youtubeShortId, youtubeShortUrl } = req.body;
-    const video = await Video.findById(req.params.id);
-    if (!video) {
-      return res.status(404).json({ msg: "Video record not found." });
-    }
-
-    const shortIdx = parseInt(req.params.shortIndex, 10);
-    const short = (video.shorts || []).find((s, idx) => (s.factIndex === shortIdx || idx + 1 === shortIdx));
-    if (!short) {
-      return res.status(404).json({ msg: `Short #${shortIdx} not found.` });
-    }
-
-    if (youtubeShortId) short.youtubeShortId = youtubeShortId;
-    if (youtubeShortUrl || youtubeShortId) {
-      short.youtubeShortUrl = youtubeShortUrl || `https://www.youtube.com/shorts/${youtubeShortId}`;
-    }
-    short.isPosted = true;
-    short.postedAt = new Date();
-
-    await video.save();
-
-    const io = req.app.get("io");
-    if (io) {
-      io.emit("video_updated", video);
-    }
-
-    return res.json({
-      msg: "Short YouTube status recorded successfully.",
-      videoId: video._id,
-      shortIndex: shortIdx,
-      youtubeShortId: short.youtubeShortId,
-      youtubeShortUrl: short.youtubeShortUrl
-    });
-  } catch (err) {
-    return res.status(500).json({ msg: "Server error recording short YouTube status." });
   }
 });
 

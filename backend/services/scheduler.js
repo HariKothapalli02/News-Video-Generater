@@ -146,6 +146,7 @@ async function publishDailyFullVideo(io) {
       createdAt: { $gte: todayStart },
       disableAutoUpload: { $ne: true },
       isPosted: { $ne: true },
+      isUploading: { $ne: true },
       $or: [{ youtubeVideoId: "" }, { youtubeVideoId: null }, { youtubeVideoId: { $exists: false } }],
       $and: [{ $or: [{ youtubeUrl: "" }, { youtubeUrl: null }, { youtubeUrl: { $exists: false } }] }]
     }).sort({ createdAt: -1 });
@@ -156,18 +157,31 @@ async function publishDailyFullVideo(io) {
         status: "Completed",
         disableAutoUpload: { $ne: true },
         isPosted: { $ne: true },
+        isUploading: { $ne: true },
         $or: [{ youtubeVideoId: "" }, { youtubeVideoId: null }, { youtubeVideoId: { $exists: false } }],
         $and: [{ $or: [{ youtubeUrl: "" }, { youtubeUrl: null }, { youtubeUrl: { $exists: false } }] }]
       }).sort({ createdAt: -1 });
     }
 
     if (!video) {
-      console.log("[Scheduler 6:00 AM] ℹ️ No unposted completed video found for YouTube upload. All videos are posted.");
+      console.log("[Scheduler 6:00 AM] ℹ️ No unposted completed video found for YouTube upload. All videos are posted or currently uploading.");
       return { success: false, reason: "No pending unposted completed video" };
     }
 
-    console.log(`[Scheduler 6:00 AM] Found pending video '${video.title}' (${video._id}). Dispatching to YouTube uploader...`);
+    console.log(`[Scheduler 6:00 AM] Found pending video '${video.title}' (${video._id}). Locking and dispatching to YouTube uploader...`);
+    // Lock immediately
+    video.isUploading = true;
+    video.uploadStartedAt = new Date();
+    await video.save();
+
     const dispatchResult = await dispatchFullVideoToWebhook(video);
+
+    if (!dispatchResult.dispatched && !dispatchResult.timeout) {
+      video.isUploading = false;
+      await video.save();
+      console.warn(`[Scheduler 6:00 AM] Dispatch failed for video '${video.title}': ${dispatchResult.reason || dispatchResult.error}`);
+      return { success: false, reason: dispatchResult.reason || dispatchResult.error };
+    }
 
     let ytId = "";
     if (dispatchResult.response) {
@@ -176,6 +190,7 @@ async function publishDailyFullVideo(io) {
     }
 
     video.isPosted = true;
+    video.isUploading = false;
     video.postedAt = new Date();
     if (ytId) {
       video.youtubeVideoId = ytId;
@@ -249,8 +264,26 @@ async function publishDailyShort(io, shortIdx) {
       return { success: true, skipped: true, reason: "Short already posted or uploaded" };
     }
 
-    console.log(`[Scheduler ${slotName}] Found Short #${shortIdx} ('${short.title}'). Dispatching to YouTube uploader...`);
+    // Skip if currently uploading
+    const isUploadingStale = short.uploadStartedAt && (Date.now() - new Date(short.uploadStartedAt).getTime() > 15 * 60 * 1000);
+    if (short.isUploading && !isUploadingStale) {
+      console.log(`[Scheduler ${slotName}] ⏳ Short #${shortIdx} for video '${video.title}' is currently uploading. Skipping duplicate trigger.`);
+      return { success: true, skipped: true, reason: "Short upload in progress" };
+    }
+
+    console.log(`[Scheduler ${slotName}] Found Short #${shortIdx} ('${short.title}'). Locking and dispatching to YouTube uploader...`);
+    short.isUploading = true;
+    short.uploadStartedAt = new Date();
+    await video.save();
+
     const dispatchResult = await dispatchShortToWebhook({ video, short, shortIdx });
+
+    if (!dispatchResult.dispatched && !dispatchResult.timeout) {
+      short.isUploading = false;
+      await video.save();
+      console.warn(`[Scheduler ${slotName}] Dispatch failed for Short #${shortIdx}: ${dispatchResult.reason || dispatchResult.error}`);
+      return { success: false, reason: dispatchResult.reason || dispatchResult.error };
+    }
 
     let ytId = "";
     if (dispatchResult.response) {
@@ -259,6 +292,7 @@ async function publishDailyShort(io, shortIdx) {
     }
 
     short.isPosted = true;
+    short.isUploading = false;
     short.postedAt = new Date();
     if (ytId) {
       short.youtubeShortId = ytId;

@@ -3,12 +3,13 @@ os.environ["GRPC_VERBOSITY"] = "NONE"
 os.environ["GRPC_GOOG_LOG_SEVERITY_THRESHOLD"] = "3"
 
 import sys
-if hasattr(sys.stdout, "reconfigure"):
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+for _stream in (sys.stdout, sys.stderr):
+    _reconfig = getattr(_stream, "reconfigure", None)
+    if callable(_reconfig):
+        try:
+            _reconfig(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 import json
 import re
@@ -446,8 +447,8 @@ SCRIPT:
 
 def generate_video_metadata(subject, script_text, facts, language="english"):
     """
-    Generates YouTube Title, 3 Alternative Titles, full SEO Description with Chapter Timestamps,
-    and 15-20 Tags in ONE single API call to Gemini.
+    Generates YouTube Title, 3 Alternative Titles, Thumbnail Hook, full SEO Description
+    with Chapter Timestamps, and 20+ viral Tags in ONE single API call to Gemini.
     """
     chapters_text = []
     for f in facts:
@@ -455,77 +456,105 @@ def generate_video_metadata(subject, script_text, facts, language="english"):
         m = int(start_sec // 60)
         s = int(start_sec % 60)
         time_str = f"{m:02d}:{s:02d}"
-        chapters_text.append(f"{time_str} - Fact {f.get('factIndex', 1)}: {f.get('title', '')}")
-    chapters_formatted = "\n".join(chapters_text) if chapters_text else "0:00 - Intro\n... Topics 1 to 10"
+        clean_title = f.get('title', '').replace('*', '').strip()
+        chapters_text.append(f"{time_str} - {clean_title}")
+    chapters_formatted = "\n".join(chapters_text) if chapters_text else "00:00 - Breaking Intro\n... Top Stories"
+    clean_subject_tag = re.sub(r"[^a-zA-Z0-9]", "", subject)
 
     prompt = f"""
-You are an expert YouTube SEO specialist and viral content strategist.
-Create the complete YouTube video metadata for a news video.
+You are an elite YouTube news creator, viral media strategist, and CTR optimization expert.
+Create the ultimate high-CTR, high-retention YouTube metadata for this breaking news video.
 
-Topic: {subject}
+Topic Focus: {subject}
 Language: {language}
-Number of Topics: {len(facts)}
+Number of Stories: {len(facts)}
 
 Timeline / Chapters:
 {chapters_formatted}
 
 Script Excerpt:
-{script_text[:1200]}
+{script_text[:1400]}
 
-Generate the metadata in ONE single response. Return ONLY a valid JSON object in this exact format:
+STRATEGY & CTR RULES:
+1. Primary Title:
+   - Must be UNDER 75 characters so it is never truncated on mobile screens.
+   - Use proven YouTube news formulas (e.g., "IT FINALLY HAPPENED: Top 10 Breaking News Stories", "They Can't Hide This: Top 10 Shocking Updates", "The Big Shift: 10 Major Stories Breaking Today").
+   - Arouse intense curiosity and urgency without false clickbait.
+2. Alternative Titles (3 options):
+   - Option 1 (Curiosity Gap): e.g. "What Everyone Is Missing About Today's News"
+   - Option 2 (High Stakes / Impact): e.g. "This Changes Everything: Top 10 Major Updates"
+   - Option 3 (Direct Breaking News): e.g. "Top 10 Developing Stories Breaking Right Now"
+3. Thumbnail Hook:
+   - 2 to 4 words in ALL CAPS suitable for a massive thumbnail badge (e.g., "IT BEGAN!", "MAJOR SHIFT!", "WHAT HAPPENED?").
+4. Description:
+   - Hook: 2 captivating sentences that summarize the drama and magnitude of the news.
+   - Chapters: EXACT formatted timestamps list ({chapters_formatted}).
+   - Engagement: A compelling question prompting viewers to comment below.
+   - Channel CTA: Encouraging subscription and notification bell for daily updates.
+   - Hashtags: 5-8 trending viral hashtags (#news #breakingnews #trending #viral #{clean_subject_tag} #bytewire).
+5. Tags:
+   - 18 to 22 highly searched, relevant YouTube tags.
+
+Return ONLY a valid JSON object in this exact format:
 {{
-  "title": "Primary high-CTR, curiosity-driven YouTube Title (under 80 characters)",
+  "title": "Primary High-CTR Title Under 75 Chars",
   "titles": [
-    "Alternative High-CTR Title Option 1",
-    "Alternative High-CTR Title Option 2",
-    "Alternative High-CTR Title Option 3"
+    "Alternative High-CTR Option 1",
+    "Alternative High-CTR Option 2",
+    "Alternative High-CTR Option 3"
   ],
-  "description": "Comprehensive, SEO-optimized YouTube video description with a 2-sentence hook overview, followed by the exact timestamps/chapters list, relevant trending hashtags (e.g. #news #tech), and subscribe call-to-action.",
+  "thumbnail_hook": "PUNCHY 2-4 WORD HOOK",
+  "description": "Full description text here...",
   "tags": [
-    "tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11", "tag12", "tag13", "tag14", "tag15"
+    "tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10",
+    "tag11", "tag12", "tag13", "tag14", "tag15", "tag16", "tag17", "tag18", "tag19", "tag20"
   ]
 }}
-Do not wrap in markdown or explanation. Return JSON only.
+Do not wrap in markdown or commentary. Return pure JSON only.
 """
-    print("[LOG] Running Gemini AI to generate full video YouTube metadata (Title, Description, Tags) in 1 request...")
+    print("[LOG] Running Gemini AI to generate high-CTR full video YouTube metadata (Titles, Hook, Description, Tags)...")
     try:
         raw = execute_gemini_with_retry(prompt)
         cleaned = clean_json_response(raw)
         data = json.loads(cleaned)
         return {
-            "title": data.get("title", f"Top 10 {subject.title()} News You Need To Know"),
+            "title": data.get("title", f"Top 10 {subject.title()} News You Need To Know Today"),
             "titles": data.get("titles", []),
+            "thumbnail_hook": data.get("thumbnail_hook", "BREAKING NEWS"),
             "description": data.get("description", ""),
-            "tags": data.get("tags", [subject, "news", "top 10", "breaking news"])
+            "tags": data.get("tags", [subject, "news", "breaking news", "top 10", "trending news", "daily update"])
         }
     except Exception as e:
-        print(f"[LOG] Warning: Failed to generate/parse video metadata JSON ({e}). Falling back to template metadata.")
+        print(f"[LOG] Warning: Failed to generate/parse video metadata JSON ({e}). Falling back to optimized template.")
         clean_tag = re.sub(r"[^a-zA-Z0-9]", "", subject)
         return {
-            "title": f"Top 10 {subject.title()} News Stories You Must Know Today",
+            "title": f"BREAKING: Top 10 {subject.title()} Stories Breaking Right Now!",
             "titles": [
-                f"Top 10 {subject.title()} Updates",
-                f"Breaking: Top 10 {subject.title()} Developments",
+                f"What You Need To Know: Top 10 {subject.title()} Updates",
+                f"This Just Happened: 10 Major {subject.title()} Developments",
                 f"The Biggest {subject.title()} News Explained"
             ],
-            "description": f"Here are the top 10 {subject} news stories you need to know today.\n\nTimestamps:\n{chapters_formatted}\n\n#news #{clean_tag} #breaking",
-            "tags": [subject, "news", "trending", "breaking news", "updates", "top 10"]
+            "thumbnail_hook": "MAJOR ALERT!",
+            "description": f"Here are the top 10 verified {subject} news stories you must know today. From breaking developments to major announcements, here is everything you need to know.\n\n📌 TIMESTAMPS:\n{chapters_formatted}\n\n💬 Which story impacts you the most? Drop your thoughts below!\n🔔 Subscribe to ByteWire AI News for daily verified news updates.\n\n#news #breakingnews #trending #viral #{clean_tag} #bytewire",
+            "tags": [subject, "news", "trending", "breaking news", "updates", "top 10", "daily news", "bytewire"]
         }
 
 
 def generate_shorts_metadata(facts, subject, language="english"):
     """
-    Generates YouTube Shorts metadata (Title, Description with #shorts hashtags, Tags)
-    for all 10 facts in ONE single API call to Gemini.
+    Generates viral YouTube Shorts metadata (Hook Title with #Shorts, engaging Description,
+    and Tags) for all facts in ONE single API call to Gemini.
     """
     facts_summary = []
     for f in facts:
         facts_summary.append(f"Fact #{f.get('factIndex', 1)}: {f.get('title', '')} - {f.get('description', '')[:180]}")
     facts_text = "\n".join(facts_summary)
 
+    clean_subject_tag = re.sub(r"[^a-zA-Z0-9]", "", subject)
+
     prompt = f"""
-You are a viral YouTube Shorts and TikTok strategist.
-For each of the following {len(facts)} news facts, generate high-retention, viral YouTube Shorts metadata (Title, Description, and Tags).
+You are a top-tier YouTube Shorts & viral TikTok strategist.
+For each of the following {len(facts)} news facts, generate viral, high-retention YouTube Shorts metadata.
 
 Subject: {subject}
 Language: {language}
@@ -534,22 +563,30 @@ FACTS:
 {facts_text}
 
 Requirements for each Short:
-1. Title: Extremely catchy, curiosity-inducing short title under 60 characters with 1 relevant emoji and #Shorts.
-2. Description: 1 to 2 punchy sentences summarizing the shock/impact + hashtags: #shorts #youtubeshorts #trending and 2 topic hashtags.
-3. Tags: 8 to 12 relevant tags optimized for YouTube Shorts search and browse features.
+1. Title:
+   - Extremely punchy, curiosity-inducing hook under 55 characters.
+   - Include 1-2 relevant emojis (🚨, 🤯, 😱, ⚡, ⚠️).
+   - MUST end with "#Shorts" (e.g. "Did This Really Just Happen?! 😱 #Shorts", "They Finally Admitted It! 🚨 #Shorts").
+2. Description:
+   - 1 punchy sentence summarizing the shocking development.
+   - Engagement question to trigger comment arguments/debate (e.g. "What would you do in this situation? 👇").
+   - Call to action: "📺 Watch full 10-story breakdown on our channel!"
+   - Viral hashtags: #shorts #youtubeshorts #trending #viral #breakingnews #{clean_subject_tag} #bytewire
+3. Tags:
+   - 10 to 14 high-volume shorts tags (shorts, youtubeshorts, viral, trending, news, breaking news, etc.).
 
 Return ONLY a valid JSON array of {len(facts)} objects:
 [
   {{
     "fact_index": 1,
-    "title": "Shocking Title Here! 🚨 #Shorts",
-    "description": "Quick punchy summary. What do you think about this? #shorts #youtubeshorts #news",
-    "tags": ["shorts", "news", "trending", "tag4", "tag5", "tag6", "tag7", "tag8"]
+    "title": "Shocking Development Revealed! 🚨 #Shorts",
+    "description": "This is changing everything. What are your thoughts on this? Drop a comment below! 👇\\n\\n📺 Watch full breakdown on our channel!\\n\\n#shorts #youtubeshorts #trending #viral #breakingnews #bytewire",
+    "tags": ["shorts", "youtubeshorts", "trending", "viral", "news", "breaking news", "bytewire"]
   }}
 ]
 Do not wrap in markdown or explanation. Return JSON only.
 """
-    print(f"[LOG] Running Gemini AI to generate metadata for {len(facts)} Shorts in 1 request...")
+    print(f"[LOG] Running Gemini AI to generate viral metadata for {len(facts)} Shorts in 1 request...")
     try:
         raw = execute_gemini_with_retry(prompt)
         cleaned = clean_json_response(raw)
@@ -563,13 +600,13 @@ Do not wrap in markdown or explanation. Return JSON only.
     fallbacks = []
     for f in facts:
         idx = f.get("factIndex", 1)
-        t = f.get("title", f"Fact {idx}")
+        t = f.get("title", f"Fact {idx}").replace("*", "").strip()
         clean_tag = re.sub(r"[^a-zA-Z0-9]", "", subject)
         fallbacks.append({
             "fact_index": idx,
-            "title": f"{t[:48]} 🚨 #Shorts",
-            "description": f"{f.get('description', '')[:140]}\n\n#shorts #youtubeshorts #{clean_tag}",
-            "tags": ["shorts", "news", "trending", subject, f"fact {idx}"]
+            "title": f"{t[:42]} 🚨 #Shorts",
+            "description": f"{f.get('description', '')[:140]}\n\nWhat do you think about this? Let us know below! 👇\n\n📺 Watch the full breakdown on our channel!\n\n#shorts #youtubeshorts #trending #viral #news #{clean_tag} #bytewire",
+            "tags": ["shorts", "youtubeshorts", "trending", "viral", "news", "breaking news", subject, f"story {idx}"]
         })
     return fallbacks
 

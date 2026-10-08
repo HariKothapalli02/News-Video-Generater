@@ -20,6 +20,7 @@ import piper_tts
 import whisper
 import movie
 import shorts
+import thumbnail
 
 VIDEO_DIR = os.getenv("VIDEO_STORAGE_DIR", "../videos")
 THUMBNAIL_DIR = os.getenv("THUMBNAIL_STORAGE_DIR", "../thumbnails")
@@ -292,12 +293,10 @@ def main():
             scratch_dir=scratch_dir
         )
 
-        print("[LOG] Extracting video thumbnail frame...")
         intro_offset = movie.get_video_duration(intro_path) if (intro_path and os.path.exists(intro_path)) else 0.0
-        movie.generate_thumbnail(output_video_path, output_thumbnail_path, timestamp_sec=max(1.0, intro_offset + 3.0))
 
         # ======================================================================
-        # STAGE 7: YOUTUBE METADATA & 9:16 SHORTS EXTRACTION
+        # STAGE 7: YOUTUBE METADATA & PROFESSIONAL THUMBNAIL CREATION
         # ======================================================================
         print("[LOG] Parsing all 10 fact chapters and detecting timestamps for video timeline and metadata...")
         facts_parsed = shorts.parse_facts_from_script(script_text)
@@ -309,12 +308,35 @@ def main():
 
         # Generate Full Video YouTube Metadata in 1 single Gemini API call with all 10 chapters
         print("@STATUS: Generating Metadata", flush=True)
+        yt_meta = {}
         try:
             yt_meta = gemini.generate_video_metadata(subject, script_text, fact_segments, language)
             safe_meta_json = json.dumps(yt_meta).replace("\n", " ")
             print(f"@METADATA: {safe_meta_json}", flush=True)
         except Exception as e:
             print(f"[LOG] Warning generating YouTube metadata: {e}", flush=True)
+
+        # Generate High-Impact YouTube Thumbnail (gathered from Pexels high-res photos + viral graphic overlays)
+        print("[LOG] Generating high-CTR professional YouTube thumbnail gathered from Pexels...", flush=True)
+        try:
+            hook_text = yt_meta.get("thumbnail_hook", "") if isinstance(yt_meta, dict) else ""
+            meta_title = yt_meta.get("title", "") if isinstance(yt_meta, dict) else ""
+            thumbnail.create_youtube_thumbnail(
+                output_path=output_thumbnail_path,
+                title=meta_title,
+                hook_text=hook_text,
+                facts=fact_segments,
+                subject=subject,
+                video_path=output_video_path,
+                intro_offset=intro_offset
+            )
+        except Exception as e:
+            print(f"[LOG] Warning in custom thumbnail generator: {e}. Falling back to video frame.", flush=True)
+            movie.generate_thumbnail(output_video_path, output_thumbnail_path, timestamp_sec=max(1.0, intro_offset + 3.0))
+
+        # ======================================================================
+        # STAGE 8: 9:16 SHORTS EXTRACTION
+        # ======================================================================
 
         # Extract vertical 9:16 shorts if requested (strictly top 3 shorts from the 10 news)
         if generate_shorts:

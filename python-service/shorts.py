@@ -1,5 +1,4 @@
 import os
-import sys
 import re
 import json
 import argparse
@@ -402,9 +401,14 @@ def extract_all_shorts(
             )
 
             meta = meta_by_index.get(f_idx, {})
-            short_title = meta.get("title", f"Fact #{f_idx}: {seg['title'][:40]} 🚨 #Shorts")
-            short_desc = meta.get("description", f"{seg['description'][:140]} #shorts #news")
-            short_tags = meta.get("tags", ["shorts", "news", "trending", subject])
+            clean_fact_title = seg['title'].replace('*', '').strip()
+            short_title = meta.get("title") or f"{clean_fact_title[:44]} 🚨 #Shorts"
+            if "#shorts" not in short_title.lower():
+                short_title = f"{short_title[:45]} #Shorts"
+            short_desc = meta.get("description") or (
+                f"{seg['description'][:140]}\n\nWhat do you think about this? Let us know below! 👇\n\n📺 Watch the full 10-story breakdown on our channel!\n\n#shorts #youtubeshorts #trending #viral #news #breakingnews #bytewire"
+            )
+            short_tags = meta.get("tags") or ["shorts", "youtubeshorts", "trending", "viral", "news", "breaking news", subject, "bytewire"]
 
             completed_shorts.append({
                 "factIndex": f_idx,

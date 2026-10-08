@@ -15,23 +15,27 @@ async function dispatchShortToWebhook({ video, short, shortIdx }) {
 
   const meta = short.youtubeMetadata || {};
   const factTitle = short.factTitle || short.title || `News Short #${shortIdx}`;
-  const rawTitle = meta.title || `${factTitle} #Shorts`;
-  const uploadTitle = (rawTitle.includes("#Shorts") || rawTitle.includes("#shorts"))
-    ? rawTitle.substring(0, 100)
-    : `${rawTitle.substring(0, 90)} #Shorts`;
+  let rawTitle = meta.title || `${factTitle} 🚨 #Shorts`;
+  if (!rawTitle.toLowerCase().includes("#shorts")) {
+    rawTitle = `${rawTitle.substring(0, 88)} #Shorts`;
+  }
+  const uploadTitle = rawTitle.substring(0, 100);
 
   let uploadDescription = meta.description || short.scriptText || factTitle;
   if (video.youtubeUrl && !uploadDescription.includes("youtube.com")) {
-    uploadDescription += `\n\nFull Video: ${video.youtubeUrl}`;
+    uploadDescription += `\n\n📺 Full Video & Breakdown: ${video.youtubeUrl}`;
+  }
+  if (!uploadDescription.includes("Subscribe")) {
+    uploadDescription += `\n\n🔔 Subscribe to ByteWire AI News for daily breaking reports!`;
   }
   if (!uploadDescription.includes("#shorts")) {
-    uploadDescription += `\n\n#shorts #youtubeshorts #trending #news #bytewire`;
+    uploadDescription += `\n\n#shorts #youtubeshorts #trending #viral #news #breakingnews #bytewire`;
   }
   uploadDescription = uploadDescription.substring(0, 5000);
 
   const uploadTags = (meta.tags && meta.tags.length > 0)
-    ? meta.tags.slice(0, 15)
-    : ["shorts", "youtubeshorts", "news", "trending", "bytewire"];
+    ? meta.tags.slice(0, 20)
+    : ["shorts", "youtubeshorts", "trending", "viral", "news", "breaking news", "bytewire"];
 
   const payload = {
     action: "post_reel",
@@ -46,6 +50,7 @@ async function dispatchShortToWebhook({ video, short, shortIdx }) {
     shortDownloadUrl: `${baseUrl}/api/download/${video._id}/short/${shortIdx}`,
     videoDownloadUrl: `${baseUrl}/api/download/${video._id}/short/${shortIdx}`,
     videoUrl: `${baseUrl}/videos/shorts/${video._id}_short_${shortIdx}.mp4`,
+    thumbnailUrl: `${baseUrl}/thumbnails/shorts/${video._id}_short_${shortIdx}.png`,
     parentYoutubeUrl: video.youtubeUrl || "",
     timestamp: new Date().toISOString()
   };
@@ -122,11 +127,16 @@ async function dispatchFullVideoToWebhook(video) {
   const baseUrl = process.env.APP_URL || "https://ytvideo.harikothapalli.space";
 
   const meta = video.youtubeMetadata || {};
-  const uploadTitle = (meta.title || video.title || "Trending News Daily").substring(0, 100);
-  const uploadDescription = (meta.description || `Top 3 ${video.subject} news stories today. Subscribe for daily breaking updates! #news #trending`).substring(0, 5000);
+  const uploadTitle = (meta.title || video.title || "Top 10 Breaking News Stories Today").substring(0, 100);
+  let uploadDescription = meta.description || `Top 10 ${video.subject} news stories today. Watch for full verified analysis and breaking updates.\n\n🔔 Subscribe to ByteWire AI News for daily reports!\n\n#news #breakingnews #trending #viral #technews #bytewire`;
+  if (!uploadDescription.includes("#news")) {
+    uploadDescription += "\n\n#news #breakingnews #trending #viral #bytewire";
+  }
+  uploadDescription = uploadDescription.substring(0, 5000);
+
   const uploadTags = (meta.tags && meta.tags.length > 0)
-    ? meta.tags.slice(0, 15)
-    : ["news", "trending", "breaking news", "bytewire"];
+    ? meta.tags.slice(0, 25)
+    : ["news", "breaking news", "trending", "top 10", "daily news", "bytewire"];
 
   const payload = {
     action: "post_full_video",
