@@ -192,13 +192,24 @@ def detect_fact_timestamps(facts, audio_words, total_duration, intro_offset=0.0)
                 # Fallback: cut 0.5s before next fact's start to avoid any bleed into next fact
                 end_audio = next_start - 0.5
         else:
-            # Last fact: check if outro starts or find last spoken word
+            # Last fact in list: check if next fact marker (e.g. Fact 4) or outro starts
             outro_start = None
             if audio_words:
                 start_w_idx = fact_start_indices[idx] or 0
-                for i in range(start_w_idx, w_len - 1):
+                next_f_num = facts[idx].get("factIndex", idx + 1) + 1
+                valid_next_nums = set(NUMBER_WORDS.get(next_f_num, [str(next_f_num)]))
+
+                for i in range(start_w_idx + 2, w_len - 1):
                     w = clean_token(audio_words[i]["word"])
                     w_next = clean_token(audio_words[i + 1]["word"])
+                    # If next fact (e.g. Fact 4) is found in audio, cut strictly before it!
+                    if (w in ["fact", "number", "story", "topic", "point"] and w_next in valid_next_nums) or \
+                       (w.startswith("fact") and any(w.endswith(num) for num in valid_next_nums)):
+                        outro_start = audio_words[i]["start"]
+                        last_w_end = audio_words[i - 1]["end"] if i > 0 else outro_start - 0.5
+                        end_audio = min(last_w_end + 0.35, outro_start - 0.3)
+                        break
+                    # If outro / subscribe marker found
                     if (w in ["outro", "subscribe"]) or (w == "those" and w_next in ["were", "was"]):
                         outro_start = audio_words[i]["start"]
                         last_w_end = audio_words[i - 1]["end"] if i > 0 else outro_start - 0.5
@@ -206,8 +217,10 @@ def detect_fact_timestamps(facts, audio_words, total_duration, intro_offset=0.0)
                         break
 
             if outro_start is None:
-                # If no outro marker found, end before total duration minus outro buffer
-                end_audio = min(total_duration - intro_offset, start_audio + 45.0)
+                # Estimate duration strictly based on words in this fact's description (max 28s)
+                desc_words = len(facts[idx].get("description", "").split())
+                est_seconds = max(10.0, min(28.0, (desc_words / 2.3) + 2.0))
+                end_audio = min(total_duration - intro_offset, start_audio + est_seconds)
 
         # Enforce minimum and maximum duration constraints for YouTube Shorts
         duration = end_audio - start_audio
@@ -300,11 +313,12 @@ def extract_all_shorts(
     subject="news",
     language="english",
     video_storage_dir=None,
-    thumbnail_storage_dir=None
+    thumbnail_storage_dir=None,
+    existing_facts=None
 ):
     """
-    Main coordinator to turn a full video into 10 vertical 9:16 Shorts with
-    custom YouTube Shorts metadata (Title, Description, Tags) generated in 1 API request.
+    Main coordinator to turn a full video into strictly 3 distinct vertical 9:16 Shorts (1 fact per short)
+    with custom YouTube Shorts metadata (Title, Description, Tags) generated in 1 API request.
     """
     ffmpeg_exe = get_ffmpeg_exe()
 
@@ -317,18 +331,17 @@ def extract_all_shorts(
     os.makedirs(shorts_video_dir, exist_ok=True)
     os.makedirs(shorts_thumb_dir, exist_ok=True)
 
-    # 1. Parse facts from script (strictly top 3 shorts)
-    facts = parse_facts_from_script(script_text)[:3]
-    if not facts:
-        print("[LOG] Warning: No structured facts found in script. Generating 3 synthetic fact markers.")
-        for i in range(1, 4):
-            facts.append({
+    # 1. Parse ALL facts from script (so timestamps for Fact 4 and beyond are known to prevent bleed)
+    all_facts = parse_facts_from_script(script_text)
+    if not all_facts:
+        print("[LOG] Warning: No structured facts found in script. Generating 10 synthetic fact markers.")
+        for i in range(1, 11):
+            all_facts.append({
                 "factIndex": i,
                 "title": f"Story #{i} from {subject.title()}",
                 "description": f"Key breaking update #{i} regarding {subject}.",
                 "full_text": f"Story #{i}"
             })
-    facts = facts[:3]
 
     # 2. Get total video duration
     total_duration = 180.0
@@ -343,9 +356,26 @@ def extract_all_shorts(
     except Exception as e:
         print(f"[LOG] Duration probe warning: {e}")
 
-    # 3. Detect exact timestamps for each fact
-    fact_segments = detect_fact_timestamps(facts, audio_words, total_duration, intro_offset)
-    print(f"[LOG] Slicing video into {len(fact_segments)} 9:16 vertical shorts (Duration: {total_duration:.1f}s)...")
+    # 3. Detect exact timestamps across ALL facts so Fact 3 is strictly bounded by Fact 4's start
+    if existing_facts and len(existing_facts) >= 3:
+        has_valid_times = all(
+            isinstance(f, dict) and "startTime" in f and "endTime" in f and (f["endTime"] - f["startTime"] >= 5.0)
+            for f in existing_facts[:3]
+        )
+        if has_valid_times:
+            print("[LOG] Reusing verified non-overlapping fact boundary timestamps from video pipeline...")
+            fact_segments = existing_facts[:3]
+        else:
+            all_segments = detect_fact_timestamps(all_facts, audio_words, total_duration, intro_offset)
+            fact_segments = all_segments[:3]
+    else:
+        all_segments = detect_fact_timestamps(all_facts, audio_words, total_duration, intro_offset)
+        # Strictly take only the top 3 facts for shorts
+        fact_segments = all_segments[:3]
+
+    print(f"[LOG] Slicing video into strictly {len(fact_segments)} vertical shorts (strictly 1 fact per short)...")
+    for s in fact_segments:
+        print(f"[LOG]  -> Short Fact #{s['factIndex']}: {s['startTime']}s -> {s['endTime']}s (duration: {s['duration']}s)")
 
     # 4. Generate Shorts Metadata in ONE single API request to Gemini
     print(f"[LOG] Generating dedicated YouTube Shorts metadata (Title, Description, Tags) for all {len(fact_segments)} shorts...")
@@ -448,6 +478,7 @@ def main():
     parser.add_argument("--video-path", required=True)
     parser.add_argument("--script-path", default="")
     parser.add_argument("--words-path", default="")
+    parser.add_argument("--facts-path", default="")
     parser.add_argument("--subject", default="news")
     parser.add_argument("--language", default="english")
     parser.add_argument("--intro-offset", type=float, default=0.0)
@@ -467,6 +498,26 @@ def main():
         except Exception as e:
             print(f"[LOG] Warning reading words: {e}")
 
+    # Fallback to scratch words.json if not explicitly passed
+    if not audio_words:
+        scratch_words = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scratch", args.job_id, "words.json")
+        if os.path.exists(scratch_words):
+            try:
+                with open(scratch_words, "r", encoding="utf-8") as f:
+                    audio_words = json.load(f)
+                    print(f"[LOG] Loaded audio word timings from scratch folder: {len(audio_words)} words.")
+            except Exception:
+                pass
+
+    existing_facts = None
+    if args.facts_path and os.path.exists(args.facts_path):
+        try:
+            with open(args.facts_path, "r", encoding="utf-8") as f:
+                existing_facts = json.load(f)
+                print(f"[LOG] Loaded {len(existing_facts)} verified fact boundaries from facts file.")
+        except Exception as e:
+            print(f"[LOG] Warning reading facts file: {e}")
+
     result = extract_all_shorts(
         job_id=args.job_id,
         video_path=args.video_path,
@@ -474,7 +525,8 @@ def main():
         audio_words=audio_words,
         intro_offset=args.intro_offset,
         subject=args.subject,
-        language=args.language
+        language=args.language,
+        existing_facts=existing_facts
     )
 
     # Output structured markers for videoQueue or node process

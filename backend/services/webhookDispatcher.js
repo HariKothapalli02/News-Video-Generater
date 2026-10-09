@@ -85,10 +85,15 @@ async function dispatchShortToWebhook({ video, short, shortIdx }) {
         res.on("end", () => {
           let parsedResp = null;
           try { parsedResp = JSON.parse(respData); } catch (_) {}
+          const isHttpError = res.statusCode >= 400;
+          const hasErrorPayload = !!parsedResp?.errorMessage || parsedResp?.status === "error";
+          const errorMsg = parsedResp?.errorMessage || parsedResp?.message || (isHttpError ? `Webhook returned HTTP ${res.statusCode}` : null);
+
           resolve({
-            dispatched: true,
+            dispatched: !isHttpError && !hasErrorPayload,
             statusCode: res.statusCode,
             response: parsedResp || respData,
+            error: (isHttpError || hasErrorPayload) ? errorMsg : null,
             payload
           });
         });
@@ -183,10 +188,15 @@ async function dispatchFullVideoToWebhook(video) {
         res.on("end", () => {
           let parsedResp = null;
           try { parsedResp = JSON.parse(respData); } catch (_) {}
+          const isHttpError = res.statusCode >= 400;
+          const hasErrorPayload = !!parsedResp?.errorMessage || parsedResp?.status === "error";
+          const errorMsg = parsedResp?.errorMessage || parsedResp?.message || (isHttpError ? `Webhook returned HTTP ${res.statusCode}` : null);
+
           resolve({
-            dispatched: true,
+            dispatched: !isHttpError && !hasErrorPayload,
             statusCode: res.statusCode,
             response: parsedResp || respData,
+            error: (isHttpError || hasErrorPayload) ? errorMsg : null,
             payload
           });
         });

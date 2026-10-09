@@ -121,7 +121,7 @@ export default function VideoDetails({ id, onBack }) {
   const handlePostReel = async (shortIdx) => {
     if (!video) return;
     const shortObj = (video.shorts || []).find((s, idx) => (s.factIndex === shortIdx || idx + 1 === shortIdx));
-    if (shortObj?.isPosted || shortObj?.youtubeShortId) {
+    if (shortObj?.youtubeShortId || shortObj?.youtubeShortUrl) {
       const confirmReupload = window.confirm(`Short #${shortIdx} is ALREADY published to YouTube. Are you sure you want to re-upload it?`);
       if (!confirmReupload) return;
     }
@@ -135,11 +135,12 @@ export default function VideoDetails({ id, onBack }) {
         if (!prev || !prev.shorts) return prev;
         const updatedShorts = prev.shorts.map((s, idx) => {
           if (s.factIndex === shortIdx || idx + 1 === shortIdx) {
+            const isPublished = Boolean(ytId || s.youtubeShortId);
             return {
               ...s,
-              isPosted: true,
+              isPosted: isPublished,
               isUploading: false,
-              postedAt: new Date(),
+              postedAt: isPublished ? new Date() : s.postedAt,
               youtubeShortId: ytId || s.youtubeShortId,
               youtubeShortUrl: ytUrl || s.youtubeShortUrl
             };
@@ -153,7 +154,7 @@ export default function VideoDetails({ id, onBack }) {
         ...prev,
         [shortIdx]: {
           status: "success",
-          msg: data?.msg || `Short #${shortIdx} published to YouTube!`,
+          msg: data?.msg || (ytId ? `Short #${shortIdx} published to YouTube!` : `Short #${shortIdx} upload dispatched!`),
           url: ytUrl
         }
       }));
@@ -173,7 +174,7 @@ export default function VideoDetails({ id, onBack }) {
 
   const handlePostFullVideo = async () => {
     if (!video) return;
-    if (video.isPosted || video.youtubeVideoId) {
+    if (video.youtubeVideoId || video.youtubeUrl) {
       const confirmReupload = window.confirm("This full video is ALREADY published to YouTube. Are you sure you want to re-upload it?");
       if (!confirmReupload) return;
     }
@@ -183,19 +184,20 @@ export default function VideoDetails({ id, onBack }) {
       const data = await postFullVideo(video._id);
       const ytId = data?.youtubeVideoId;
       const ytUrl = data?.youtubeUrl || (ytId ? `https://www.youtube.com/watch?v=${ytId}` : null);
+      const isPublished = Boolean(ytId || video.youtubeVideoId);
 
       setVideo((prev) => ({
         ...prev,
-        isPosted: true,
+        isPosted: isPublished,
         isUploading: false,
-        postedAt: new Date(),
+        postedAt: isPublished ? new Date() : prev.postedAt,
         youtubeVideoId: ytId || prev.youtubeVideoId,
         youtubeUrl: ytUrl || prev.youtubeUrl
       }));
 
       setFullVideoPostStatus({
         status: "success",
-        msg: data?.msg || "Full video published to YouTube!",
+        msg: data?.msg || (ytId ? "Full video published to YouTube!" : "Video upload dispatched to uploader!"),
         url: ytUrl
       });
     } catch (err) {
@@ -355,7 +357,7 @@ export default function VideoDetails({ id, onBack }) {
               disabled={postingFullVideo}
               title="Post the full 16:9 HD video directly to YouTube with complete metadata"
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-none text-xs font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                video.isPosted || video.youtubeVideoId
+                video.youtubeVideoId || video.youtubeUrl
                   ? "bg-emerald-950/80 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-700/60"
                   : "bg-red-600 hover:bg-red-500 text-white border border-red-600 shadow-sm"
               }`}
@@ -365,7 +367,7 @@ export default function VideoDetails({ id, onBack }) {
                   <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin rounded-full" />
                   <span>Posting Video...</span>
                 </>
-              ) : video.isPosted || video.youtubeVideoId ? (
+              ) : video.youtubeVideoId || video.youtubeUrl ? (
                 <>
                   <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Published to YouTube</span>
@@ -465,7 +467,7 @@ export default function VideoDetails({ id, onBack }) {
                     <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
                     Upload Blocked (Local Only)
                   </span>
-                ) : (video.isPosted || video.youtubeVideoId || video.youtubeUrl) ? (
+                ) : (video.youtubeVideoId || video.youtubeUrl) ? (
                   <span className="flex items-center gap-1.5 text-[9px] font-mono text-emerald-400 font-bold uppercase">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     Published
@@ -513,7 +515,7 @@ export default function VideoDetails({ id, onBack }) {
                   onClick={handlePostFullVideo}
                   disabled={postingFullVideo}
                   className={`py-2 px-2.5 text-center font-bold text-xs uppercase tracking-wider transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                    video.isPosted || video.youtubeVideoId
+                    video.youtubeVideoId || video.youtubeUrl
                       ? "bg-emerald-950/80 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-700/60"
                       : "bg-red-600 hover:bg-red-500 text-white border border-red-600 shadow-sm"
                   }`}
@@ -523,7 +525,7 @@ export default function VideoDetails({ id, onBack }) {
                       <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin rounded-full" />
                       <span>Posting...</span>
                     </>
-                  ) : video.isPosted || video.youtubeVideoId ? (
+                  ) : video.youtubeVideoId || video.youtubeUrl ? (
                     <>
                       <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
                       <span>Published ✅</span>
@@ -872,7 +874,7 @@ export default function VideoDetails({ id, onBack }) {
                                     disabled={postingShortIndex === (short.factIndex || idx + 1)}
                                     title="Publish this individual 9:16 Short to YouTube with full AI title, hashtags, description & tags"
                                     className={`py-2 px-2.5 text-center font-bold text-xs uppercase tracking-wider transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                                      short.youtubeShortId || short.isPosted
+                                      short.youtubeShortId || short.youtubeShortUrl
                                         ? "bg-emerald-950/80 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-700/60"
                                         : "bg-red-600 hover:bg-red-500 text-white border border-red-600 shadow-sm"
                                     }`}
@@ -882,7 +884,7 @@ export default function VideoDetails({ id, onBack }) {
                                         <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin rounded-full" />
                                         <span>Posting...</span>
                                       </>
-                                    ) : short.youtubeShortId || short.isPosted ? (
+                                    ) : short.youtubeShortId || short.youtubeShortUrl ? (
                                       <>
                                         <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
                                         <span>Published ✅</span>

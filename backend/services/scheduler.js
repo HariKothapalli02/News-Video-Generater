@@ -179,8 +179,9 @@ async function publishDailyFullVideo(io) {
     if (!dispatchResult.dispatched && !dispatchResult.timeout) {
       video.isUploading = false;
       await video.save();
-      console.warn(`[Scheduler 6:00 AM] Dispatch failed for video '${video.title}': ${dispatchResult.reason || dispatchResult.error}`);
-      return { success: false, reason: dispatchResult.reason || dispatchResult.error };
+      const errReason = dispatchResult.error || dispatchResult.reason || "Dispatch failed";
+      console.warn(`[Scheduler 6:00 AM] Dispatch failed for video '${video.title}': ${errReason}`);
+      return { success: false, reason: errReason };
     }
 
     let ytId = "";
@@ -189,10 +190,11 @@ async function publishDailyFullVideo(io) {
       ytId = respObj?.youtubeVideoId || respObj?.uploadId || respObj?.id || "";
     }
 
-    video.isPosted = true;
     video.isUploading = false;
-    video.postedAt = new Date();
+    // Only mark posted if real YouTube ID returned
     if (ytId) {
+      video.isPosted = true;
+      video.postedAt = new Date();
       video.youtubeVideoId = ytId;
       video.youtubeUrl = `https://www.youtube.com/watch?v=${ytId}`;
     }
@@ -281,8 +283,9 @@ async function publishDailyShort(io, shortIdx) {
     if (!dispatchResult.dispatched && !dispatchResult.timeout) {
       short.isUploading = false;
       await video.save();
-      console.warn(`[Scheduler ${slotName}] Dispatch failed for Short #${shortIdx}: ${dispatchResult.reason || dispatchResult.error}`);
-      return { success: false, reason: dispatchResult.reason || dispatchResult.error };
+      const errReason = dispatchResult.error || dispatchResult.reason || "Dispatch failed";
+      console.warn(`[Scheduler ${slotName}] Dispatch failed for Short #${shortIdx}: ${errReason}`);
+      return { success: false, reason: errReason };
     }
 
     let ytId = "";
@@ -291,14 +294,14 @@ async function publishDailyShort(io, shortIdx) {
       ytId = respObj?.youtubeShortId || respObj?.uploadId || respObj?.id || "";
     }
 
-    short.isPosted = true;
     short.isUploading = false;
-    short.postedAt = new Date();
+    // Only mark posted if real YouTube ID returned
     if (ytId) {
+      short.isPosted = true;
+      short.postedAt = new Date();
       short.youtubeShortId = ytId;
       short.youtubeShortUrl = `https://www.youtube.com/shorts/${ytId}`;
     }
-
     await video.save();
 
     if (shortIdx === 1) lastPublishExecutionTime.short1 = new Date();

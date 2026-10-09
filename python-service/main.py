@@ -353,7 +353,8 @@ def main():
                     subject=subject,
                     language=language,
                     video_storage_dir=VIDEO_DIR,
-                    thumbnail_storage_dir=THUMBNAIL_DIR
+                    thumbnail_storage_dir=THUMBNAIL_DIR,
+                    existing_facts=fact_segments
                 )
                 safe_shorts_json = json.dumps(shorts_result.get("shorts", [])).replace("\n", " ")
                 print(f"@SHORTS: {safe_shorts_json}", flush=True)

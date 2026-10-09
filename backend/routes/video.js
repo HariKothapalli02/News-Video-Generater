@@ -134,6 +134,27 @@ router.get("/status", auth, async (req, res) => {
 router.get("/history", auth, async (req, res) => {
   try {
     const videos = await Video.find().sort({ createdAt: -1 });
+    // Sanitize any corrupt isPosted states where video was never actually posted
+    for (const v of videos) {
+      let changed = false;
+      if (v.isPosted && !v.youtubeVideoId && !v.youtubeUrl) {
+        v.isPosted = false;
+        v.postedAt = null;
+        changed = true;
+      }
+      if (v.shorts && v.shorts.length > 0) {
+        v.shorts.forEach((s) => {
+          if (s.isPosted && !s.youtubeShortId && !s.youtubeShortUrl) {
+            s.isPosted = false;
+            s.postedAt = null;
+            changed = true;
+          }
+        });
+      }
+      if (changed) {
+        await v.save().catch(() => {});
+      }
+    }
     res.json(videos);
   } catch (err) {
     res.status(500).json({ msg: "Server error fetching history." });
@@ -148,6 +169,25 @@ router.get("/video/:id", auth, async (req, res) => {
     const video = await Video.findById(req.params.id);
     if (!video) {
       return res.status(404).json({ msg: "Video not found." });
+    }
+    // Sanitize if marked posted but has no actual YouTube ID or URL
+    let changed = false;
+    if (video.isPosted && !video.youtubeVideoId && !video.youtubeUrl) {
+      video.isPosted = false;
+      video.postedAt = null;
+      changed = true;
+    }
+    if (video.shorts && video.shorts.length > 0) {
+      video.shorts.forEach((s) => {
+        if (s.isPosted && !s.youtubeShortId && !s.youtubeShortUrl) {
+          s.isPosted = false;
+          s.postedAt = null;
+          changed = true;
+        }
+      });
+    }
+    if (changed) {
+      await video.save().catch(() => {});
     }
     res.json(video);
   } catch (err) {
@@ -721,6 +761,12 @@ router.post("/video/:id/generate-shorts", auth, async (req, res) => {
     const tempScriptPath = path.join(pythonCwd, `temp_script_${video._id}.txt`);
     fs.writeFileSync(tempScriptPath, video.script || "", "utf-8");
 
+    const tempFactsPath = path.join(pythonCwd, `temp_facts_${video._id}.json`);
+    const hasExistingFacts = Array.isArray(video.facts) && video.facts.length >= 3;
+    if (hasExistingFacts) {
+      fs.writeFileSync(tempFactsPath, JSON.stringify(video.facts), "utf-8");
+    }
+
     const args = [
       "-u",
       pythonScript,
@@ -730,6 +776,10 @@ router.post("/video/:id/generate-shorts", auth, async (req, res) => {
       "--subject", video.subject || "news",
       "--language", video.language || "english"
     ];
+
+    if (hasExistingFacts) {
+      args.push("--facts-path", tempFactsPath);
+    }
 
     console.log(`[Standalone Shorts] Spawning: ${pythonBin} ${args.join(" ")}`);
     const { spawn } = require("child_process");
@@ -752,6 +802,9 @@ router.post("/video/:id/generate-shorts", auth, async (req, res) => {
     child.on("close", async (code) => {
       if (fs.existsSync(tempScriptPath)) {
         try { fs.unlinkSync(tempScriptPath); } catch (_) {}
+      }
+      if (fs.existsSync(tempFactsPath)) {
+        try { fs.unlinkSync(tempFactsPath); } catch (_) {}
       }
 
       if (code === 0) {
@@ -971,10 +1024,7 @@ router.post("/video/:id/post", auth, async (req, res) => {
       return res.status(400).json({ msg: "Video must be in 'Completed' status to post to YouTube." });
     }
 
-    if (video.isPosted || video.youtubeVideoId) {
-      return res.status(400).json({ msg: "This video has already been posted to YouTube." });
-    }
-
+    // Allow manual upload or re-upload even if previously posted
     const isUploadingStale = video.uploadStartedAt && (Date.now() - new Date(video.uploadStartedAt).getTime() > 15 * 60 * 1000);
     if (video.isUploading && !isUploadingStale) {
       return res.status(409).json({ msg: "This video is currently being uploaded to YouTube. Please wait." });
@@ -996,9 +1046,11 @@ router.post("/video/:id/post", auth, async (req, res) => {
     if (!dispatchResult.dispatched && !dispatchResult.timeout) {
       video.isUploading = false;
       await video.save();
+      const errorMsg = dispatchResult.error || dispatchResult.reason || dispatchResult.response?.errorMessage || "Failed to dispatch upload to webhook.";
       return res.status(502).json({
-        msg: "Failed to dispatch upload to webhook.",
-        reason: dispatchResult.reason || dispatchResult.error
+        msg: errorMsg,
+        reason: errorMsg,
+        details: dispatchResult.response
       });
     }
 
@@ -1008,10 +1060,11 @@ router.post("/video/:id/post", auth, async (req, res) => {
       ytId = respObj?.youtubeVideoId || respObj?.uploadId || respObj?.id || "";
     }
 
-    video.isPosted = true;
     video.isUploading = false;
-    video.postedAt = new Date();
+    // CRITICAL: Only set isPosted to true when a real YouTube Video ID was returned!
     if (ytId) {
+      video.isPosted = true;
+      video.postedAt = new Date();
       video.youtubeVideoId = ytId;
       video.youtubeUrl = `https://www.youtube.com/watch?v=${ytId}`;
     }
@@ -1027,7 +1080,7 @@ router.post("/video/:id/post", auth, async (req, res) => {
       success: true,
       msg: ytId
         ? `Full video published to YouTube: https://www.youtube.com/watch?v=${ytId}`
-        : `Full video upload dispatched to YouTube with complete metadata!`,
+        : `Full video upload dispatched to YouTube uploader!`,
       videoId: video._id,
       youtubeVideoId: video.youtubeVideoId,
       youtubeUrl: video.youtubeUrl,
@@ -1058,10 +1111,7 @@ router.post("/video/:id/short/:shortIndex/post", auth, async (req, res) => {
       return res.status(404).json({ msg: `Short #${shortIdx} not found for this video.` });
     }
 
-    if (short.isPosted || short.youtubeShortId) {
-      return res.status(400).json({ msg: `Short #${shortIdx} has already been posted to YouTube.` });
-    }
-
+    // Allow manual upload or re-upload even if previously posted
     const isUploadingStale = short.uploadStartedAt && (Date.now() - new Date(short.uploadStartedAt).getTime() > 15 * 60 * 1000);
     if (short.isUploading && !isUploadingStale) {
       return res.status(409).json({ msg: `Short #${shortIdx} is currently being uploaded to YouTube. Please wait.` });
@@ -1083,9 +1133,11 @@ router.post("/video/:id/short/:shortIndex/post", auth, async (req, res) => {
     if (!dispatchResult.dispatched && !dispatchResult.timeout) {
       short.isUploading = false;
       await video.save();
+      const errorMsg = dispatchResult.error || dispatchResult.reason || dispatchResult.response?.errorMessage || `Failed to dispatch Short #${shortIdx} to webhook.`;
       return res.status(502).json({
-        msg: `Failed to dispatch Short #${shortIdx} to webhook.`,
-        reason: dispatchResult.reason || dispatchResult.error
+        msg: errorMsg,
+        reason: errorMsg,
+        details: dispatchResult.response
       });
     }
 
@@ -1096,10 +1148,11 @@ router.post("/video/:id/short/:shortIndex/post", auth, async (req, res) => {
       ytId = respObj?.youtubeShortId || respObj?.uploadId || respObj?.id || "";
     }
 
-    short.isPosted = true;
     short.isUploading = false;
-    short.postedAt = new Date();
+    // CRITICAL: Only set isPosted to true when a real YouTube Short ID was returned!
     if (ytId) {
+      short.isPosted = true;
+      short.postedAt = new Date();
       short.youtubeShortId = ytId;
       short.youtubeShortUrl = `https://www.youtube.com/shorts/${ytId}`;
     }
@@ -1115,7 +1168,7 @@ router.post("/video/:id/short/:shortIndex/post", auth, async (req, res) => {
       success: true,
       msg: ytId
         ? `Reel #${shortIdx} published to YouTube: https://www.youtube.com/shorts/${ytId}`
-        : `Reel #${shortIdx} upload dispatched to YouTube with complete metadata!`,
+        : `Reel #${shortIdx} upload dispatched to YouTube uploader!`,
       short,
       youtubeShortId: short.youtubeShortId,
       youtubeShortUrl: short.youtubeShortUrl,
