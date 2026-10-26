@@ -64,8 +64,8 @@ const VideoSchema = new mongoose.Schema({
   },
   videoType: {
     type: String,
-    enum: ["tech_news", "trending_news", "india_general_news", "specific_content"],
-    default: "tech_news"
+    enum: ["tech_news", "trending_news", "india_general_news", "telugu_news", "specific_content"],
+    default: "telugu_news"
   },
   customScript: {
     type: String,

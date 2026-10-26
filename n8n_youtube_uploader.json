@@ -1,11 +1,11 @@
 {
-  "name": "ByteWire - Auto YouTube Publishing Schedule (6 AM Full Video, 9 AM, 2 PM, 6 PM Shorts)",
+  "name": "ByteWire - Auto YouTube Publishing Schedule (5:30 AM Full Video, 9 AM, 2 PM, 6 PM Shorts)",
   "nodes": [
     {
       "parameters": {
         "rule": {
           "interval": [
-            { "triggerAtHour": 6, "triggerAtMinute": 0 },
+            { "triggerAtHour": 5, "triggerAtMinute": 30 },
             { "triggerAtHour": 9, "triggerAtMinute": 0 },
             { "triggerAtHour": 14, "triggerAtMinute": 0 },
             { "triggerAtHour": 18, "triggerAtMinute": 0 }
@@ -13,11 +13,11 @@
         }
       },
       "id": "schedule-trigger",
-      "name": "Schedule Trigger (6 AM, 9 AM, 2 PM, 6 PM)",
+      "name": "Schedule Trigger (5:30 AM, 9 AM, 2 PM, 6 PM)",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [240, 300],
-      "notes": "Runs automatically at 06:00 (Full Video), 09:00 (Short #1), 14:00 (Short #2), 18:00 (Short #3) IST."
+      "notes": "Runs automatically at 05:30 (Full Telugu Video), 09:00 (Short #1), 14:00 (Short #2), 18:00 (Short #3) IST."
     },
     {
       "parameters": {

@@ -65,8 +65,14 @@ def main():
     language = args.language.lower().strip()
     use_music = args.use_music.lower() == "true"
     use_subtitles = args.use_subtitles.lower() == "true"
-    custom_prompt = args.custom_prompt
     video_type = args.video_type
+    custom_prompt = args.custom_prompt
+    if language == "telugu":
+        print("[LOG] Narration language is Telugu. Subtitles burn-in disabled as requested.")
+        use_subtitles = False
+        if video_type in ["tech_news", "trending_news"]:
+            video_type = "telugu_news"
+            subject = "telugu news"
     custom_script = args.custom_script
     generate_shorts = args.generate_shorts.lower() == "true"
 

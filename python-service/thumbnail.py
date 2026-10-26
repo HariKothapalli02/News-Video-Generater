@@ -22,11 +22,13 @@ def get_best_font(size, bold=True):
     candidate_fonts = []
     if bold:
         candidate_fonts.extend([
+            "NirmalaB.ttf", "nirmalab.ttf", "gautamib.ttf", "NotoSansTelugu-Bold.ttf",
             "arialbd.ttf", "impact.ttf", "segoeuib.ttf", "calibrib.ttf",
             "trebucbd.ttf", "DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf",
             "HelveticaNeue-Bold.ttf", "Arial-Bold.ttf"
         ])
     candidate_fonts.extend([
+        "Nirmala.ttf", "nirmala.ttf", "gautami.ttf", "NotoSansTelugu-Regular.ttf",
         "arial.ttf", "segoeui.ttf", "calibri.ttf",
         "DejaVuSans.ttf", "LiberationSans-Regular.ttf"
     ])
@@ -281,16 +283,16 @@ def create_youtube_thumbnail(
         lines = [clean_hook]
     elif facts and len(facts) > 0:
         top_title = facts[0].get("title", "").replace("*", "").strip()
-        # Clean title into 4-6 strong words
-        w_list = [w.upper() for w in re.sub(r"[^a-zA-Z0-9\s]", "", top_title).split() if len(w) > 2]
+        # Clean title into 4-6 strong words (supporting Telugu script)
+        w_list = [w for w in re.sub(r"[^a-zA-Z0-9\u0C00-\u0C7F\s]", "", top_title).split() if len(w) > 1]
         if len(w_list) >= 4:
             lines = [" ".join(w_list[:3]), " ".join(w_list[3:6])]
         elif len(w_list) > 0:
-            lines = [" ".join(w_list), "SHOCKING UPDATE!"]
+            lines = [" ".join(w_list), "సంచలన వార్త!"]
         else:
-            lines = ["IT FINALLY HAPPENED!", "TOP 10 STORIES"]
+            lines = ["నేటి ముఖ్య వార్తలు", "టాప్ 10 ముఖ్యాంశాలు"]
     else:
-        lines = ["BREAKING REPORT:", f"TOP 10 {subject.upper()} NEWS"]
+        lines = ["బ్రేకింగ్ న్యూస్:", "టాప్ 10 తాజా వార్తలు"]
 
     # Limit to max 3 lines
     lines = lines[:3]
@@ -320,7 +322,10 @@ def create_youtube_thumbnail(
     # 9. Sub-headline badge (e.g. "TOP 10 VERIFIED STORIES TODAY")
     sub_y = text_start_y + (len(lines) * line_spacing) + 20
     sub_font = get_best_font(28, bold=True)
-    sub_text = f"TOP 10 {subject.upper()} STORIES • TODAY"
+    if "telugu" in str(subject).lower():
+        sub_text = "టాప్ 10 తాజా వార్తలు • నేటి ముఖ్యాంశాలు"
+    else:
+        sub_text = f"TOP 10 {subject.upper()} STORIES • TODAY"
     try:
         s_box = sub_font.getbbox(sub_text)
         s_w, s_h = s_box[2] - s_box[0], s_box[3] - s_box[1]

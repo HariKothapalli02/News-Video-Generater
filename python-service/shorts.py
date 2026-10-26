@@ -24,16 +24,16 @@ def get_ffmpeg_exe():
 
 
 NUMBER_WORDS = {
-    1: ["1", "one", "first", "1st", "won", "ek", "pahla", "pehla", "okati", "modata"],
-    2: ["2", "two", "second", "2nd", "to", "too", "do", "dusra", "doosra", "rendu", "rendava"],
-    3: ["3", "three", "third", "3rd", "tree", "teen", "teesra", "tisra", "moodu", "moodava"],
-    4: ["4", "four", "fourth", "4th", "for", "fore", "iv", "char", "chautha", "nalugu", "naalugava"],
-    5: ["5", "five", "fifth", "5th", "paanch", "panch", "aidu", "aidava"],
-    6: ["6", "six", "sixth", "6th", "chhah", "che", "aaru", "aarava"],
-    7: ["7", "seven", "seventh", "7th", "saat", "yedu", "yedava"],
-    8: ["8", "eight", "eighth", "8th", "ate", "aath", "enimidi", "enimidava"],
-    9: ["9", "nine", "ninth", "9th", "nau", "tommidi", "tommidava"],
-    10: ["10", "ten", "tenth", "10th", "das", "padi", "padava"]
+    1: ["1", "one", "first", "1st", "won", "ek", "pahla", "pehla", "okati", "modata", "ఒకటి", "ఒకటో"],
+    2: ["2", "two", "second", "2nd", "to", "too", "do", "dusra", "doosra", "rendu", "rendava", "రెండు", "రెండో"],
+    3: ["3", "three", "third", "3rd", "tree", "teen", "teesra", "tisra", "moodu", "moodava", "మూడు", "మూడో"],
+    4: ["4", "four", "fourth", "4th", "for", "fore", "iv", "char", "chautha", "nalugu", "naalugava", "నాలుగు", "నాలుగో"],
+    5: ["5", "five", "fifth", "5th", "paanch", "panch", "aidu", "aidava", "ఐదు", "ఐదో"],
+    6: ["6", "six", "sixth", "6th", "chhah", "che", "aaru", "aarava", "ఆరు", "ఆరో"],
+    7: ["7", "seven", "seventh", "7th", "saat", "yedu", "yedava", "ఏడు", "ఏడో"],
+    8: ["8", "eight", "eighth", "8th", "ate", "aath", "enimidi", "enimidava", "ఎనిమిది", "ఎనిమిదో"],
+    9: ["9", "nine", "ninth", "9th", "nau", "tommidi", "tommidava", "తొమ్మిది", "తొమ్మిదో"],
+    10: ["10", "ten", "tenth", "10th", "das", "padi", "padava", "పది", "పదో"]
 }
 
 

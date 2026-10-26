@@ -3,22 +3,13 @@ const Video = require("../models/Video");
 const videoQueue = require("./videoQueue");
 const { dispatchFullVideoToWebhook, dispatchShortToWebhook } = require("./webhookDispatcher");
 
-// 3-Day Rotating Topics with Trending News as primary focus
+// Daily Telugu News Focus (NTV, TV9, Andhra Jyothy, V6 Velugu)
 const TOPIC_ROTATION = [
   {
-    videoType: "trending_news",
-    subject: "trending news",
-    titlePrefix: "Trending News Daily"
-  },
-  {
-    videoType: "tech_news",
-    subject: "technology news",
-    titlePrefix: "Tech News Daily"
-  },
-  {
-    videoType: "india_general_news",
-    subject: "india general news",
-    titlePrefix: "India Top News Daily"
+    videoType: "telugu_news",
+    subject: "telugu news",
+    language: "telugu",
+    titlePrefix: "ఈరోజు టాప్ 10 తాజా వార్తలు (Telugu News Today)"
   }
 ];
 
@@ -33,13 +24,13 @@ let lastPublishExecutionTime = {
 let activeCronTasks = [];
 
 /**
- * Determine the next topic in the 3-day sequence by inspecting the most recent automated video.
+ * Determine the next topic in the sequence.
  */
 async function getNextTopic() {
   try {
     const lastVideo = await Video.findOne({ isAutomated: true }).sort({ createdAt: -1 });
     if (!lastVideo || !lastVideo.videoType) {
-      return TOPIC_ROTATION[0]; // Default to trending_news
+      return TOPIC_ROTATION[0];
     }
 
     const currentIdx = TOPIC_ROTATION.findIndex((t) => t.videoType === lastVideo.videoType);
@@ -55,8 +46,9 @@ async function getNextTopic() {
 }
 
 /**
- * 05:00 AM: Daily Video & 3 Shorts Generation Pipeline.
- * Generates the full video with top 10 trending news, and converts top 3 into shorts.
+ * 04:00 AM: Daily Telugu Video & 3 Shorts Generation Pipeline.
+ * Generates the full video with top 10 Telugu news from NTV, TV9, Andhra Jyothy & V6 Velugu,
+ * and converts top 3 into shorts with no subtitles.
  * DOES NOT post anything to YouTube at this time.
  */
 async function triggerDailyGeneration(io, isManual = false) {
@@ -67,29 +59,29 @@ async function triggerDailyGeneration(io, isManual = false) {
   }
 
   const topic = await getNextTopic();
-  const dateStr = new Date().toLocaleDateString("en-US", {
+  const dateStr = new Date().toLocaleDateString("te-IN", {
     month: "short",
     day: "numeric",
     year: "numeric"
   });
   const videoTitle = `${topic.titlePrefix} - ${dateStr}`;
 
-  console.log(`[Scheduler] ⏰ Auto-triggering 5:00 AM daily video generation: "${videoTitle}" (Type: ${topic.videoType})`);
-  console.log(`[Scheduler] 🔒 Notice: Full video (10 news stories) and 3 Shorts will be generated locally. No uploads will be made until scheduled times (6 AM full, 9 AM short 1, 2 PM short 2, 6 PM short 3).`);
+  console.log(`[Scheduler] ⏰ Auto-triggering 4:00 AM daily Telugu news generation: "${videoTitle}"`);
+  console.log(`[Scheduler] 🔒 Notice: Full video (10 news stories) and 3 Shorts will be generated locally in Telugu without subtitles. Video will be posted to YouTube at 5:30 AM.`);
 
   try {
     const newVideo = new Video({
       title: videoTitle,
-      subject: topic.subject,
-      language: "english",
+      subject: topic.subject || "telugu news",
+      language: topic.language || "telugu",
       status: "Pending",
       progress: 0,
       script: "",
-      logs: `Auto-scheduled 5 AM generation (Top 10 trending news). Initializing pipeline without upload...`,
-      videoType: topic.videoType,
-      customPrompt: "Select the top 10 most trending news stories with maximum viral hook, high curiosity, and massive public interest. The first 3 stories will be converted into dedicated shorts.",
+      logs: `Auto-scheduled 4:00 AM daily Telugu news generation (NTV, TV9, Andhra Jyothy, V6 Velugu). Initializing pipeline...`,
+      videoType: topic.videoType || "telugu_news",
+      customPrompt: "సెలెక్ట్ చేసిన 4 న్యూస్ ఫీడ్స్ (NTV, TV9, ఆంధ్రజ్యోతి, V6 వెలుగు) నుంచి టాప్ 10 ముఖ్యమైన తాజా వార్తలతో తెలుగులో స్క్రిప్ట్ రాయండి. మొదటి 3 వార్తలు షార్ట్స్ కొరకు ఉపయోగించబడతాయి.",
       useMusic: true,
-      useSubtitles: true,
+      useSubtitles: false, // Strict requirement: no subtitles for Telugu video
       generateShorts: true,
       factsCount: 10,
       isAutomated: true
@@ -341,34 +333,34 @@ function initScheduler(app) {
   activeCronTasks.forEach(task => task.stop());
   activeCronTasks = [];
 
-  const genCron = process.env.AUTO_GENERATE_CRON || "0 5 * * *"; // 5:00 AM daily
-  const fullVideoCron = process.env.AUTO_PUBLISH_FULL_VIDEO_CRON || "0 6 * * *"; // 6:00 AM daily
+  const genCron = process.env.AUTO_GENERATE_CRON || "0 4 * * *"; // 4:00 AM daily
+  const fullVideoCron = process.env.AUTO_PUBLISH_FULL_VIDEO_CRON || "30 5 * * *"; // 5:30 AM daily
   const short1Cron = process.env.AUTO_PUBLISH_SHORT_1_CRON || "0 9 * * *"; // 9:00 AM daily
   const short2Cron = process.env.AUTO_PUBLISH_SHORT_2_CRON || "0 14 * * *"; // 2:00 PM daily
   const short3Cron = process.env.AUTO_PUBLISH_SHORT_3_CRON || "0 18 * * *"; // 6:00 PM daily
 
-  console.log(`[Scheduler] 🚀 Automated Daily Publishing Pipeline initialized! (Timezone: ${timezone})`);
-  console.log(`  ▶ 05:00 AM (${genCron}) → Generate Video & 3 Shorts (No YouTube upload)`);
-  console.log(`  ▶ 06:00 AM (${fullVideoCron}) → Post Full Video on YouTube`);
+  console.log(`[Scheduler] 🚀 Automated Daily Telugu Publishing Pipeline initialized! (Timezone: ${timezone})`);
+  console.log(`  ▶ 04:00 AM (${genCron}) → Generate Daily Telugu Video & 3 Shorts (No Subtitles)`);
+  console.log(`  ▶ 05:30 AM (${fullVideoCron}) → Post Full Telugu Video on YouTube`);
   console.log(`  ▶ 09:00 AM (${short1Cron}) → Post Short #1 on YouTube`);
   console.log(`  ▶ 02:00 PM (${short2Cron}) → Post Short #2 on YouTube`);
   console.log(`  ▶ 06:00 PM (${short3Cron}) → Post Short #3 on YouTube`);
 
   const io = app.get("io");
 
-  // 1. 05:00 AM Video & Shorts Generation
+  // 1. 04:00 AM Video & Shorts Generation
   if (cron.validate(genCron)) {
     const taskGen = cron.schedule(genCron, async () => {
-      console.log(`[Scheduler] 🔔 5:00 AM trigger fired! Generating video & 3 shorts...`);
+      console.log(`[Scheduler] 🔔 4:00 AM trigger fired! Generating daily Telugu video & 3 shorts...`);
       await triggerDailyGeneration(io, false);
     }, { timezone });
     activeCronTasks.push(taskGen);
   }
 
-  // 2. 06:00 AM Full Video YouTube Publish
+  // 2. 05:30 AM Full Video YouTube Publish
   if (cron.validate(fullVideoCron)) {
     const taskFull = cron.schedule(fullVideoCron, async () => {
-      console.log(`[Scheduler] 🔔 6:00 AM trigger fired! Posting full video to YouTube...`);
+      console.log(`[Scheduler] 🔔 5:30 AM trigger fired! Posting full Telugu video to YouTube...`);
       await publishDailyFullVideo(io);
     }, { timezone });
     activeCronTasks.push(taskFull);
@@ -410,8 +402,8 @@ function getSchedulerStatus() {
     enabled: isEnabled,
     timezone: timezone,
     schedules: {
-      generation: { cron: process.env.AUTO_GENERATE_CRON || "0 5 * * *", time: "05:00 AM", lastRun: lastGenExecutionTime },
-      fullVideoPublish: { cron: process.env.AUTO_PUBLISH_FULL_VIDEO_CRON || "0 6 * * *", time: "06:00 AM", lastRun: lastPublishExecutionTime.fullVideo },
+      generation: { cron: process.env.AUTO_GENERATE_CRON || "0 4 * * *", time: "04:00 AM", lastRun: lastGenExecutionTime },
+      fullVideoPublish: { cron: process.env.AUTO_PUBLISH_FULL_VIDEO_CRON || "30 5 * * *", time: "05:30 AM", lastRun: lastPublishExecutionTime.fullVideo },
       short1Publish: { cron: process.env.AUTO_PUBLISH_SHORT_1_CRON || "0 9 * * *", time: "09:00 AM", lastRun: lastPublishExecutionTime.short1 },
       short2Publish: { cron: process.env.AUTO_PUBLISH_SHORT_2_CRON || "0 14 * * *", time: "02:00 PM", lastRun: lastPublishExecutionTime.short2 },
       short3Publish: { cron: process.env.AUTO_PUBLISH_SHORT_3_CRON || "0 18 * * *", time: "06:00 PM", lastRun: lastPublishExecutionTime.short3 }

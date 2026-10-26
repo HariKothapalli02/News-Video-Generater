@@ -338,6 +338,17 @@ def generate_script(news_items, subject, language, custom_prompt=""):
         )
     facts_template_str = "\n\n".join(template_facts)
 
+    telugu_rules = ""
+    if language.lower().strip() == "telugu":
+        telugu_rules = """
+CRITICAL TELUGU BROADCAST RULES:
+- You MUST write the ENTIRE script strictly in TELUGU SCRIPT (తెలుగు లిపి). Do NOT write in English or transliterated Telugu.
+- Use natural, punchy Telugu TV News anchor language (టీవీ న్యూస్ వాడుక భాష).
+- Use natural breaking news opening and transition phrases (e.g., 'తాజా సమాచారం ప్రకారం', 'ముఖ్యంగా చూస్తే', 'సంచలన వివరాలు').
+- Each Fact section MUST start with 'Fact 1', 'Fact 2', ..., 'Fact 10' as the section header, followed on the next line by the Telugu Title, followed by the Telugu narration.
+- Header title at top: 'బైట్‌వైర్ టాప్ 10 తాజా వార్తలు'
+"""
+
     prompt = f"""
 You are a professional YouTube news anchor and senior scriptwriter for ByteWire AI News.
 Using the following TOP {num_facts} curated and verified stories, create a complete, cinematic, and highly engaging news narration broadcast script.
@@ -345,7 +356,7 @@ Using the following TOP {num_facts} curated and verified stories, create a compl
 CRITICAL REQUIREMENTS:
 1. YOU MUST COVER ALL {num_facts} STORIES! The script MUST contain EXACTLY {num_facts} sections: Fact 1, Fact 2, Fact 3, Fact 4, Fact 5, Fact 6, Fact 7, Fact 8, Fact 9, up to Fact {num_facts}.
 2. DO NOT STOP EARLY. DO NOT SKIP ANY FACT NUMBER. Every single number from Fact 1 to Fact {num_facts} must be present in sequence!
-3. Target Language: {language}. Write the ENTIRE script in fluent, broadcast-ready, punchy {language} suitable for a professional YouTube news video.
+3. Target Language: {language}. Write the ENTIRE script in fluent, broadcast-ready, punchy {language} suitable for a professional YouTube news video.{telugu_rules}
 4. Video Subject Focus: {subject}.
 5. Custom Prompt/Directions: {custom_prompt or "None provided"}.
 
@@ -478,22 +489,20 @@ Script Excerpt:
 STRATEGY & CTR RULES:
 1. Primary Title:
    - Must be UNDER 75 characters so it is never truncated on mobile screens.
-   - Use proven YouTube news formulas (e.g., "IT FINALLY HAPPENED: Top 10 Breaking News Stories", "They Can't Hide This: Top 10 Shocking Updates", "The Big Shift: 10 Major Stories Breaking Today").
+   - If Language is Telugu, write the Title strictly in TELUGU SCRIPT (తెలుగు లిపి).
+   - Use proven YouTube news formulas (e.g., "సంచలనం: ఈరోజు టాప్ 10 తాజా వార్తలు", "బిగ్ బ్రేకింగ్: నేటి ముఖ్య సమాచారం").
    - Arouse intense curiosity and urgency without false clickbait.
 2. Alternative Titles (3 options):
-   - Option 1 (Curiosity Gap): e.g. "What Everyone Is Missing About Today's News"
-   - Option 2 (High Stakes / Impact): e.g. "This Changes Everything: Top 10 Major Updates"
-   - Option 3 (Direct Breaking News): e.g. "Top 10 Developing Stories Breaking Right Now"
+   - In {language} script.
 3. Thumbnail Hook:
-   - 2 to 4 words in ALL CAPS suitable for a massive thumbnail badge (e.g., "IT BEGAN!", "MAJOR SHIFT!", "WHAT HAPPENED?").
+   - 2 to 4 words in {language} (e.g., in Telugu: "సంచలన వార్త!", "బిగ్ బ్రేకింగ్!", "షాకింగ్ నిజాలు!").
 4. Description:
-   - Hook: 2 captivating sentences that summarize the drama and magnitude of the news.
+   - Hook in {language} summarizing the top stories.
    - Chapters: EXACT formatted timestamps list ({chapters_formatted}).
-   - Engagement: A compelling question prompting viewers to comment below.
-   - Channel CTA: Encouraging subscription and notification bell for daily updates.
-   - Hashtags: 5-8 trending viral hashtags (#news #breakingnews #trending #viral #{clean_subject_tag} #bytewire).
+   - Engagement & Channel CTA in {language}.
+   - Hashtags: 5-8 trending viral hashtags (#news #breakingnews #trending #viral #{clean_subject_tag} #telugunews #bytewire).
 5. Tags:
-   - 18 to 22 highly searched, relevant YouTube tags.
+   - 18 to 22 highly searched, relevant YouTube tags (mix of Telugu and English keywords: telugu news, breaking news, ntv, tv9, bytewire, etc.).
 
 Return ONLY a valid JSON object in this exact format:
 {{
@@ -565,15 +574,16 @@ FACTS:
 Requirements for each Short:
 1. Title:
    - Extremely punchy, curiosity-inducing hook under 55 characters.
+   - If Language is Telugu, write the Title strictly in TELUGU SCRIPT (తెలుగు లిపి).
    - Include 1-2 relevant emojis (🚨, 🤯, 😱, ⚡, ⚠️).
-   - MUST end with "#Shorts" (e.g. "Did This Really Just Happen?! 😱 #Shorts", "They Finally Admitted It! 🚨 #Shorts").
+   - MUST end with "#Shorts" (e.g. in Telugu: "ఇది నిజంగానే జరిగిందా?! 😱 #Shorts", "సంచలన నిజం బయటపడింది! 🚨 #Shorts").
 2. Description:
-   - 1 punchy sentence summarizing the shocking development.
-   - Engagement question to trigger comment arguments/debate (e.g. "What would you do in this situation? 👇").
-   - Call to action: "📺 Watch full 10-story breakdown on our channel!"
-   - Viral hashtags: #shorts #youtubeshorts #trending #viral #breakingnews #{clean_subject_tag} #bytewire
+   - 1 punchy sentence in {language} summarizing the shocking development.
+   - Engagement question to trigger comment arguments/debate (e.g. "మీ అభిప్రాయం ఏంటి? కామెంట్ చేయండి! 👇").
+   - Call to action: "📺 పూర్తి 10 వార్తల వీడియో మన ఛానెల్‌లో చూడండి!"
+   - Viral hashtags: #shorts #youtubeshorts #trending #viral #breakingnews #{clean_subject_tag} #telugunews #bytewire
 3. Tags:
-   - 10 to 14 high-volume shorts tags (shorts, youtubeshorts, viral, trending, news, breaking news, etc.).
+   - 10 to 14 high-volume shorts tags (shorts, youtubeshorts, viral, trending, telugu news, breaking news, etc.).
 
 Return ONLY a valid JSON array of {len(facts)} objects:
 [

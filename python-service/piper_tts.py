@@ -147,8 +147,104 @@ def parse_script_into_audio_segments(text):
     }
 
 
+def generate_telugu_edge_tts(text, output_file):
+    """
+    Synthesizes Telugu news voiceover via Microsoft Edge-TTS with high-pitch male anchor voice:
+    - Voice: te-IN-MohanNeural
+    - Pitch: +25Hz (sharp, alert, high-energy breaking news tone)
+    - Rate: +5% (crisp news broadcast cadence)
+    - Fallback: Google Free Telugu TTS if Edge-TTS is temporarily unreachable
+    """
+    import asyncio
+    import subprocess
+    import shutil
+    import urllib.request
+    import urllib.parse
+
+    parsed = parse_script_into_audio_segments(text)
+    temp_dir = os.path.dirname(os.path.abspath(output_file))
+    temp_mp3 = os.path.join(temp_dir, "temp_telugu_edge.mp3")
+
+    spoken_parts = []
+    if parsed["header"]:
+        spoken_parts.append(parsed["header"])
+    for f in parsed["facts"]:
+        spoken_parts.append(f"Fact {f['num']}. {f['title']}. {f['content']}")
+    if parsed["outro"]:
+        spoken_parts.append(parsed["outro"])
+
+    full_spoken_text = "\n\n".join(spoken_parts) if spoken_parts else text
+
+    print(f"[TTS] Synthesizing Telugu News with Microsoft Edge-TTS (te-IN-MohanNeural, Pitch: +25Hz, Rate: +5%)...")
+
+    edge_succeeded = False
+    try:
+        import edge_tts
+
+        async def _run_edge():
+            communicate = edge_tts.Communicate(
+                text=full_spoken_text,
+                voice="te-IN-MohanNeural",
+                pitch="+25Hz",
+                rate="+5%"
+            )
+            await communicate.save(temp_mp3)
+
+        asyncio.run(_run_edge())
+        if os.path.exists(temp_mp3) and os.path.getsize(temp_mp3) > 1000:
+            edge_succeeded = True
+            print(f"[TTS] Edge-TTS Telugu synthesis completed ({os.path.getsize(temp_mp3) / 1024:.1f} KB).")
+    except Exception as e:
+        print(f"[TTS Warning] Microsoft Edge-TTS error ({e}). Switching to Google Telugu TTS engine fallback...")
+
+    if not edge_succeeded:
+        # Fallback to Google Free Telugu TTS
+        chunks = [full_spoken_text[i:i + 170] for i in range(0, len(full_spoken_text), 170)]
+        combined_audio = bytearray()
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36"}
+        for chunk in chunks:
+            if not chunk.strip():
+                continue
+            enc = urllib.parse.quote(chunk)
+            url = f"https://translate.google.com/translate_tts?ie=UTF-8&q={enc}&tl=te&client=tw-ob"
+            req = urllib.request.Request(url, headers=headers)
+            try:
+                with urllib.request.urlopen(req, timeout=12) as resp:
+                    combined_audio.extend(resp.read())
+            except Exception as ge:
+                print(f"[TTS Warning] Google chunk error: {ge}")
+        with open(temp_mp3, "wb") as f:
+            f.write(combined_audio)
+        print(f"[TTS] Google Telugu TTS fallback completed ({os.path.getsize(temp_mp3) / 1024:.1f} KB).")
+
+    # Convert MP3 to standard broadcast 16-bit 48kHz stereo WAV for MoviePy/FFmpeg
+    ffmpeg_exe = shutil.which("ffmpeg") or "ffmpeg"
+    convert_cmd = [
+        ffmpeg_exe, "-y",
+        "-i", temp_mp3,
+        "-ar", "48000",
+        "-ac", "2",
+        "-c:a", "pcm_s16le",
+        output_file
+    ]
+    subprocess.run(convert_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    if os.path.exists(temp_mp3):
+        try:
+            os.remove(temp_mp3)
+        except Exception:
+            pass
+
+    print(f"[TTS] Broadcast WAV voiceover generated: {output_file} ({os.path.getsize(output_file) / 1024:.1f} KB)")
+    return output_file
+
+
 def generate_audio(text, output_file, language="english"):
-    model_path = ensure_voice_model(language)
+    lang_clean = (language or "english").lower().strip()
+    if lang_clean == "telugu":
+        return generate_telugu_edge_tts(text, output_file)
+
+    model_path = ensure_voice_model(lang_clean)
     print(f"Loading Piper voice model from: {model_path}")
     voice = PiperVoice.load(model_path)
 

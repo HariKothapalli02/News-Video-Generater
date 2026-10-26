@@ -55,6 +55,14 @@ FEEDS_TRENDING = [
     ("Times of India - Top Stories", "India", "https://timesofindia.indiatimes.com/rssfeedstopstories.cms"),
 ]
 
+# Verified Top-Tier Telugu News Feeds (NTV, TV9, Andhra Jyothy, V6 Velugu)
+FEEDS_TELUGU = [
+    ("NTV Telugu", "Telugu Breaking", "https://ntvtelugu.com/feed"),
+    ("TV9 Telugu", "Telugu News", "https://tv9telugu.com/feed"),
+    ("Andhra Jyothy", "Telugu Breaking", "https://www.andhrajyothy.com/rss/feed.xml"),
+    ("V6 Velugu", "Telangana & Andhra Breaking", "https://www.v6velugu.com/feed/"),
+]
+
 
 def clean_text(text):
     text = html.unescape(text or "")
@@ -161,7 +169,10 @@ def collect_news(video_type="tech_news"):
 
     # Determine feed group
     vt = (video_type or "").lower()
-    if vt in ["india_general_news", "indian_general_news", "india_news", "political_news"]:
+    if vt in ["telugu_news", "telugu", "telugu_breaking"]:
+        feeds_to_use = FEEDS_TELUGU
+        feed_label = "Telugu Breaking News (NTV, TV9, Andhra Jyothy, V6 Velugu)"
+    elif vt in ["india_general_news", "indian_general_news", "india_news", "political_news"]:
         feeds_to_use = FEEDS_INDIA_GENERAL
         feed_label = "India General & Political News"
     elif vt == "trending_news":

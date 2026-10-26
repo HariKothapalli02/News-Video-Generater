@@ -59,14 +59,15 @@ export default function Generate() {
     if (videoType !== "specific_content" && !subject) return;
 
     clearError();
+    const isTelugu = language === "telugu" || videoType === "telugu_news";
     const success = await generateVideo({
       title,
-      subject: videoType === "specific_content" ? "custom script" : subject,
-      language: "english", // Strictly English only
+      subject: videoType === "specific_content" ? "custom script" : (isTelugu ? "telugu news" : subject),
+      language: isTelugu ? "telugu" : language,
       useMusic,
-      useSubtitles,
+      useSubtitles: isTelugu ? false : useSubtitles,
       customPrompt: videoType === "specific_content" ? "" : customPrompt,
-      videoType,
+      videoType: isTelugu ? "telugu_news" : videoType,
       customScript: videoType === "specific_content" ? customScript : "",
       generateShorts,
       disableAutoUpload
@@ -164,12 +165,20 @@ export default function Generate() {
             <select
               disabled={!!activeJob}
               value={videoType}
-              onChange={(e) => setVideoType(e.target.value)}
+              onChange={(e) => {
+                setVideoType(e.target.value);
+                if (e.target.value === "telugu_news") {
+                  setLanguage("telugu");
+                  setSubject("telugu news");
+                  setUseSubtitles(false);
+                }
+              }}
               className="w-full px-3.5 py-2.5 bg-black border border-zinc-800 rounded-none text-xs text-white focus:outline-none focus:border-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer font-mono"
             >
+              <option value="telugu_news">Telugu Breaking News (NTV, TV9, Andhra Jyothy, V6 Velugu)</option>
+              <option value="trending_news">Trending News (India & World Viral Stories)</option>
               <option value="tech_news">Technology & AI News (Global & India Top Tech Feeds)</option>
               <option value="india_general_news">India General News (Politics, National Issues, Breaking, Courts)</option>
-              <option value="trending_news">Trending News (India & World Viral Stories)</option>
               <option value="specific_content">Specific Content (Direct Custom Script)</option>
             </select>
           </div>
@@ -186,26 +195,30 @@ export default function Generate() {
                 disabled={!!activeJob}
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                placeholder="e.g. artificial intelligence updates, space tech, quantum computing"
+                placeholder="e.g. telugu news, breaking news, politics"
                 className="w-full px-3.5 py-2.5 bg-black border border-zinc-800 rounded-none text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
               />
             </div>
           )}
 
-          {/* Narration Language (English Only) */}
+          {/* Narration Language */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-mono font-bold text-zinc-300 uppercase tracking-wider block">
                 Narration Language
               </label>
-              <span className="text-[9px] font-mono text-zinc-500 uppercase">ENGLISH ONLY</span>
+              <span className="text-[9px] font-mono text-zinc-500 uppercase">{language === "telugu" ? "TELUGU (NO SUBTITLES)" : "ENGLISH"}</span>
             </div>
             <select
               disabled={!!activeJob}
               value={language}
-              onChange={(e) => setLanguage(e.target.value)}
+              onChange={(e) => {
+                setLanguage(e.target.value);
+                if (e.target.value === "telugu") setUseSubtitles(false);
+              }}
               className="w-full px-3.5 py-2.5 bg-black border border-zinc-800 rounded-none text-xs text-white focus:outline-none focus:border-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer font-mono"
             >
+              <option value="telugu">Telugu (High-Pitch Mohan Male - Edge TTS)</option>
               <option value="english">English (US Male Medium ONNX)</option>
             </select>
           </div>
