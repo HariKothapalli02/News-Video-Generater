@@ -222,6 +222,12 @@ def main():
             audio_words = whisper.transcribe_and_generate_srt(voice_path, srt_path)
             with open(words_path, "w", encoding="utf-8") as f:
                 json.dump(audio_words, f, indent=2)
+            try:
+                persistent_words_path = os.path.join(VIDEO_DIR, f"{job_id}_words.json")
+                with open(persistent_words_path, "w", encoding="utf-8") as f:
+                    json.dump(audio_words, f, indent=2)
+            except Exception as e:
+                print(f"[LOG] Warning saving persistent words: {e}")
             checkpoint["has_subtitles"] = True
             save_checkpoint(checkpoint_file, checkpoint)
             print("[LOG] Subtitles SRT and word timestamps generated.")

@@ -116,7 +116,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const video = $input.first().json;\nconst findPending = $(\"3. Find Pending Upload\").first().json;\nconst isSingleShort = findPending.isSingleShort;\nconst isFullVideoOnly = findPending.isFullVideoOnly;\nconst singleShortIndex = Number(findPending.singleShortIndex) || 1;\nconst webhookPayload = findPending.webhookPayload || {};\nconst token = findPending.token;\n\nif (isSingleShort) {\n  const shorts = (video.shorts || []).slice(0, 3);\n  const short = shorts.find((s, idx) => Number(s.factIndex) === singleShortIndex || (idx + 1) === singleShortIndex) || shorts[0] || {};\n  const ytMeta = short.youtubeMetadata || {};\n  const factTitle = short.factTitle || short.title || (\"News Short #\" + singleShortIndex);\n  let rawTitle = webhookPayload.title || ytMeta.title || (factTitle + \" 🚨 #Shorts\");\n  if (!rawTitle.toLowerCase().includes(\"#shorts\")) {\n    rawTitle = rawTitle.substring(0, 88) + \" #Shorts\";\n  }\n  const finalTitle = rawTitle.substring(0, 100);\n\n  const parentLink = video.youtubeUrl ? (\"\\n\\n📺 Watch the Full Breakdown: \" + video.youtubeUrl) : \"\";\n  let shortDesc = webhookPayload.description || ytMeta.description || ((short.scriptText || factTitle) + parentLink + \"\\n\\n🔔 Subscribe to ByteWire for daily breaking news!\\n\\n#shorts #youtubeshorts #news #trending #viral #breakingnews #bytewire\");\n  if (!shortDesc.includes(\"#shorts\")) {\n    shortDesc += \"\\n\\n#shorts #youtubeshorts #news #trending #viral #bytewire\";\n  }\n  const shortTags = webhookPayload.tags || ytMeta.tags || [\"shorts\", \"youtubeshorts\", \"news\", \"trending\", \"viral\", \"breaking news\", \"bytewire\"];\n  const videoDownloadUrl = \"https://ytvideo.harikothapalli.space/api/download/\" + video._id + \"/short/\" + singleShortIndex;\n\n  return [{\n    json: {\n      isSingleShort: true,\n      isFullVideoOnly: false,\n      videoId: video._id,\n      shortIndex: singleShortIndex,\n      token: token,\n      title: finalTitle,\n      description: shortDesc.substring(0, 5000),\n      tags: shortTags.slice(0, 20).map(t => String(t).trim()).filter(Boolean),\n      categoryId: \"25\",\n      privacyStatus: \"public\",\n      madeForKids: false,\n      videoDownloadUrl: videoDownloadUrl,\n      shorts: [],\n      shortsCount: 0\n    }\n  }];\n}\n\nconst meta = video.youtubeMetadata || {};\nconst title = (webhookPayload.title || meta.title || video.title || \"Trending News Today\").substring(0, 100);\nlet description = webhookPayload.description || meta.description || (\"Top 10 \" + video.subject + \" news stories today. Watch for the latest verified updates and analysis.\\n\\n🔔 Subscribe to ByteWire for daily breaking reports.\\n\\n#news #breakingnews #trending #technews #bytewire\");\nif (!description.includes(\"#news\")) {\n  description += \"\\n\\n#news #breakingnews #trending #viral #bytewire\";\n}\nconst tags = (webhookPayload.tags || meta.tags || [\"news\", \"trending\", \"breaking news\", \"top 10\", \"bytewire\"]).slice(0, 25).map(t => String(t).trim()).filter(Boolean);\nconst videoDownloadUrl = \"https://ytvideo.harikothapalli.space/api/download/\" + video._id;\n\nreturn [{\n  json: {\n    isSingleShort: false,\n    isFullVideoOnly: true,\n    videoId: video._id,\n    title: title,\n    description: description.substring(0, 5000),\n    tags: tags,\n    categoryId: \"25\",\n    privacyStatus: \"public\",\n    madeForKids: false,\n    videoDownloadUrl: videoDownloadUrl,\n    thumbnailUrl: \"https://ytvideo.harikothapalli.space/thumbnails/\" + video._id + \".png\",\n    shorts: (video.shorts || []).slice(0, 3),\n    shortsCount: Math.min(3, (video.shorts || []).length),\n    token: token\n  }\n}];"
+        "jsCode": "const video = $input.first().json;\nconst findPending = $(\"3. Find Pending Upload\").first().json;\nconst isSingleShort = findPending.isSingleShort;\nconst isFullVideoOnly = findPending.isFullVideoOnly;\nconst singleShortIndex = Number(findPending.singleShortIndex) || 1;\nconst webhookPayload = findPending.webhookPayload || {};\nconst token = findPending.token;\n\nif (isSingleShort) {\n  const shorts = (video.shorts || []).slice(0, 3);\n  const short = shorts.find((s, idx) => Number(s.factIndex) === singleShortIndex || (idx + 1) === singleShortIndex) || shorts[0] || {};\n  const ytMeta = short.youtubeMetadata || {};\n  const factTitle = short.factTitle || short.title || (\"News Short #\" + singleShortIndex);\n  let rawTitle = webhookPayload.title || ytMeta.title || (factTitle + \" 🚨 #Shorts\");\n  if (!rawTitle.toLowerCase().includes(\"#shorts\")) {\n    rawTitle = rawTitle.substring(0, 88) + \" #Shorts\";\n  }\n  const finalTitle = rawTitle.substring(0, 100);\n\n  const parentLink = video.youtubeUrl ? (\"\\n\\n📺 Watch the Full Breakdown: \" + video.youtubeUrl) : \"\";\n  let shortDesc = webhookPayload.description || ytMeta.description || ((short.scriptText || factTitle) + parentLink + \"\\n\\n🔔 Subscribe to ByteWire for daily breaking news!\\n\\n#shorts #youtubeshorts #news #trending #viral #breakingnews #bytewire\");\n  if (!shortDesc.includes(\"#shorts\")) {\n    shortDesc += \"\\n\\n#shorts #youtubeshorts #news #trending #viral #bytewire\";\n  }\n  const shortTags = webhookPayload.tags || ytMeta.tags || [\"shorts\", \"youtubeshorts\", \"news\", \"trending\", \"viral\", \"breaking news\", \"bytewire\"];\n  const videoDownloadUrl = \"https://ytvideo.harikothapalli.space/api/download/\" + video._id + \"/short/\" + singleShortIndex;\n  const thumbnailDownloadUrl = webhookPayload.thumbnailDownloadUrl || (\"https://ytvideo.harikothapalli.space/api/download/\" + video._id + \"/short/\" + singleShortIndex + \"/thumbnail\");\n\n  return [{\n    json: {\n      isSingleShort: true,\n      isFullVideoOnly: false,\n      videoId: video._id,\n      shortIndex: singleShortIndex,\n      token: token,\n      title: finalTitle,\n      description: shortDesc.substring(0, 5000),\n      tags: shortTags.slice(0, 20).map(t => String(t).trim()).filter(Boolean),\n      categoryId: \"25\",\n      privacyStatus: \"public\",\n      madeForKids: false,\n      videoDownloadUrl: videoDownloadUrl,\n      thumbnailUrl: thumbnailDownloadUrl,\n      thumbnailDownloadUrl: thumbnailDownloadUrl,\n      shorts: [],\n      shortsCount: 0\n    }\n  }];\n}\n\nconst meta = video.youtubeMetadata || {};\nconst title = (webhookPayload.title || meta.title || video.title || \"Trending News Today\").substring(0, 100);\nlet description = webhookPayload.description || meta.description || (\"Top 10 \" + video.subject + \" news stories today. Watch for the latest verified updates and analysis.\\n\\n🔔 Subscribe to ByteWire for daily breaking reports.\\n\\n#news #breakingnews #trending #technews #bytewire\");\nif (!description.includes(\"#news\")) {\n  description += \"\\n\\n#news #breakingnews #trending #viral #bytewire\";\n}\nconst tags = (webhookPayload.tags || meta.tags || [\"news\", \"trending\", \"breaking news\", \"top 10\", \"bytewire\"]).slice(0, 25).map(t => String(t).trim()).filter(Boolean);\nconst videoDownloadUrl = \"https://ytvideo.harikothapalli.space/api/download/\" + video._id;\nconst thumbnailDownloadUrl = webhookPayload.thumbnailDownloadUrl || (\"https://ytvideo.harikothapalli.space/api/download/\" + video._id + \"/thumbnail\");\n\nreturn [{\n  json: {\n    isSingleShort: false,\n    isFullVideoOnly: true,\n    videoId: video._id,\n    title: title,\n    description: description.substring(0, 5000),\n    tags: tags,\n    categoryId: \"25\",\n    privacyStatus: \"public\",\n    madeForKids: false,\n    videoDownloadUrl: videoDownloadUrl,\n    thumbnailUrl: thumbnailDownloadUrl,\n    thumbnailDownloadUrl: thumbnailDownloadUrl,\n    shorts: (video.shorts || []).slice(0, 3),\n    shortsCount: Math.min(3, (video.shorts || []).length),\n    token: token\n  }\n}];"
       },
       "id": "prepare-full-video-data",
       "name": "6. Prepare Video/Short Data",
@@ -174,13 +174,67 @@
     },
     {
       "parameters": {
-        "jsCode": "const ytResult = $input.first().json;\nconst youtubeId = ytResult.uploadId || ytResult.id || ytResult.videoId || ytResult?.snippet?.resourceId?.videoId || \"\";\nconst preparedData = $(\"6. Prepare Video/Short Data\").first().json;\n\nif (preparedData.isSingleShort) {\n  if (youtubeId && preparedData.videoId && preparedData.token) {\n    try {\n      await fetch(\"https://ytvideo.harikothapalli.space/api/video/\" + preparedData.videoId + \"/short/\" + preparedData.shortIndex + \"/youtube\", {\n        method: \"PATCH\",\n        headers: { \"Content-Type\": \"application/json\", \"Authorization\": \"Bearer \" + preparedData.token },\n        body: JSON.stringify({ youtubeShortId: youtubeId, youtubeShortUrl: \"https://www.youtube.com/shorts/\" + youtubeId })\n      });\n    } catch (_) {}\n  }\n  return [{\n    json: {\n      status: \"success\",\n      type: \"short\",\n      shortIndex: preparedData.shortIndex,\n      youtubeShortId: youtubeId,\n      youtubeShortUrl: \"https://www.youtube.com/shorts/\" + youtubeId,\n      message: \"Short #\" + preparedData.shortIndex + \" published successfully to YouTube!\"\n    }\n  }];\n}\n\n// Full Video upload complete\nif (youtubeId && preparedData.videoId && preparedData.token) {\n  try {\n    await fetch(\"https://ytvideo.harikothapalli.space/api/video/\" + preparedData.videoId + \"/youtube\", {\n      method: \"PATCH\",\n      headers: { \"Content-Type\": \"application/json\", \"Authorization\": \"Bearer \" + preparedData.token },\n      body: JSON.stringify({ youtubeVideoId: youtubeId })\n    });\n  } catch (_) {}\n}\n\nreturn [{\n  json: {\n    status: \"success\",\n    type: \"full_video\",\n    youtubeVideoId: youtubeId,\n    youtubeUrl: \"https://www.youtube.com/watch?v=\" + youtubeId,\n    message: \"Full video uploaded successfully to YouTube! Shorts will be published individually at 9:00 AM, 2:00 PM, and 6:00 PM.\"\n  }\n}];"
+        "method": "GET",
+        "url": "={{ $(\"6. Prepare Video/Short Data\").first().json.thumbnailDownloadUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $(\"6. Prepare Video/Short Data\").first().json.token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-thumbnail-file",
+      "name": "8a. Download Thumbnail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2150, 200],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId={{ $(\"8. Upload to YouTube\").first().json.uploadId || $(\"8. Upload to YouTube\").first().json.id || $(\"8. Upload to YouTube\").first().json.videoId || $(\"8. Upload to YouTube\").first().json?.snippet?.resourceId?.videoId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "youTubeOAuth2Api",
+        "sendBinaryData": true,
+        "binaryPropertyName": "data",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "upload-thumbnail-youtube",
+      "name": "8b. Upload Thumbnail to YouTube",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2260, 200],
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "youtube-oauth2-credential",
+          "name": "YouTube OAuth2 (ByteWire Channel)"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const ytResult = $input.first().json;\nconst youtubeId = ytResult.uploadId || ytResult.id || ytResult.videoId || ytResult?.snippet?.resourceId?.videoId || $(\"8. Upload to YouTube\").first().json?.uploadId || $(\"8. Upload to YouTube\").first().json?.id || $(\"8. Upload to YouTube\").first().json?.videoId || \"\";\nconst preparedData = $(\"6. Prepare Video/Short Data\").first().json;\n\nif (preparedData.isSingleShort) {\n  if (youtubeId && preparedData.videoId && preparedData.token) {\n    try {\n      await fetch(\"https://ytvideo.harikothapalli.space/api/video/\" + preparedData.videoId + \"/short/\" + preparedData.shortIndex + \"/youtube\", {\n        method: \"PATCH\",\n        headers: { \"Content-Type\": \"application/json\", \"Authorization\": \"Bearer \" + preparedData.token },\n        body: JSON.stringify({ youtubeShortId: youtubeId, youtubeShortUrl: \"https://www.youtube.com/shorts/\" + youtubeId })\n      });\n    } catch (_) {}\n  }\n  return [{\n    json: {\n      status: \"success\",\n      type: \"short\",\n      shortIndex: preparedData.shortIndex,\n      youtubeShortId: youtubeId,\n      youtubeShortUrl: \"https://www.youtube.com/shorts/\" + youtubeId,\n      message: \"Short #\" + preparedData.shortIndex + \" published successfully to YouTube!\"\n    }\n  }];\n}\n\n// Full Video upload complete\nif (youtubeId && preparedData.videoId && preparedData.token) {\n  try {\n    await fetch(\"https://ytvideo.harikothapalli.space/api/video/\" + preparedData.videoId + \"/youtube\", {\n      method: \"PATCH\",\n      headers: { \"Content-Type\": \"application/json\", \"Authorization\": \"Bearer \" + preparedData.token },\n      body: JSON.stringify({ youtubeVideoId: youtubeId })\n    });\n  } catch (_) {}\n}\n\nreturn [{\n  json: {\n    status: \"success\",\n    type: \"full_video\",\n    youtubeVideoId: youtubeId,\n    youtubeUrl: \"https://www.youtube.com/watch?v=\" + youtubeId,\n    message: \"Full video uploaded successfully to YouTube! Shorts will be published individually at 9:00 AM, 2:00 PM, and 6:00 PM.\"\n  }\n}];"
       },
       "id": "log-upload-result",
       "name": "9. Log Upload Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2260, 200]
+      "position": [2380, 200]
     },
     {
       "parameters": {
@@ -190,7 +244,7 @@
       "name": "10. Final Publish Summary",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2480, 200]
+      "position": [2590, 200]
     }
   ],
   "connections": {
@@ -203,7 +257,9 @@
     "5. Get Full Video Details": { "main": [[{ "node": "6. Prepare Video/Short Data", "type": "main", "index": 0 }]] },
     "6. Prepare Video/Short Data": { "main": [[{ "node": "7. Download Video File", "type": "main", "index": 0 }]] },
     "7. Download Video File": { "main": [[{ "node": "8. Upload to YouTube", "type": "main", "index": 0 }]] },
-    "8. Upload to YouTube": { "main": [[{ "node": "9. Log Upload Result", "type": "main", "index": 0 }]] },
+    "8. Upload to YouTube": { "main": [[{ "node": "8a. Download Thumbnail", "type": "main", "index": 0 }]] },
+    "8a. Download Thumbnail": { "main": [[{ "node": "8b. Upload Thumbnail to YouTube", "type": "main", "index": 0 }]] },
+    "8b. Upload Thumbnail to YouTube": { "main": [[{ "node": "9. Log Upload Result", "type": "main", "index": 0 }]] },
     "9. Log Upload Result": { "main": [[{ "node": "10. Final Publish Summary", "type": "main", "index": 0 }]] }
   },
   "pinData": {},

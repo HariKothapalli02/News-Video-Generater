@@ -51,6 +51,7 @@ async function dispatchShortToWebhook({ video, short, shortIdx }) {
     videoDownloadUrl: `${baseUrl}/api/download/${video._id}/short/${shortIdx}`,
     videoUrl: `${baseUrl}/videos/shorts/${video._id}_short_${shortIdx}.mp4`,
     thumbnailUrl: `${baseUrl}/thumbnails/shorts/${video._id}_short_${shortIdx}.png`,
+    thumbnailDownloadUrl: `${baseUrl}/api/download/${video._id}/short/${shortIdx}/thumbnail`,
     parentYoutubeUrl: video.youtubeUrl || "",
     timestamp: new Date().toISOString()
   };
@@ -155,6 +156,7 @@ async function dispatchFullVideoToWebhook(video) {
     videoDownloadUrl: `${baseUrl}/api/download/${video._id}`,
     videoUrl: `${baseUrl}/videos/${video._id}.mp4`,
     thumbnailUrl: `${baseUrl}/thumbnails/${video._id}.png`,
+    thumbnailDownloadUrl: `${baseUrl}/api/download/${video._id}/thumbnail`,
     timestamp: new Date().toISOString()
   };
 

@@ -781,6 +781,11 @@ router.post("/video/:id/generate-shorts", auth, async (req, res) => {
       args.push("--facts-path", tempFactsPath);
     }
 
+    const wordsFilePath = path.join(videoStorage, `${video._id}_words.json`);
+    if (fs.existsSync(wordsFilePath)) {
+      args.push("--words-path", wordsFilePath);
+    }
+
     console.log(`[Standalone Shorts] Spawning: ${pythonBin} ${args.join(" ")}`);
     const { spawn } = require("child_process");
     const child = spawn(pythonBin, args, {
@@ -950,6 +955,43 @@ router.get("/download/:id/short/:shortIndex", async (req, res) => {
     res.download(filePath, `${safeTitle}.mp4`);
   } catch (err) {
     res.status(500).send("Server error occurred initiating download.");
+  }
+});
+
+// @route   GET /api/download/:id/thumbnail
+// @desc    Download the rendered full video thumbnail PNG
+// @access  Public
+router.get("/download/:id/thumbnail", async (req, res) => {
+  try {
+    const thumbStorage = process.env.THUMBNAIL_STORAGE_DIR || path.join(__dirname, "..", "thumbnails");
+    const filePath = path.resolve(path.join(thumbStorage, `${req.params.id}.png`));
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send("Thumbnail image not found in storage directory.");
+    }
+
+    res.sendFile(filePath);
+  } catch (err) {
+    res.status(500).send("Server error occurred retrieving thumbnail.");
+  }
+});
+
+// @route   GET /api/download/:id/short/:shortIndex/thumbnail
+// @desc    Download an individual 9:16 vertical short thumbnail PNG
+// @access  Public
+router.get("/download/:id/short/:shortIndex/thumbnail", async (req, res) => {
+  try {
+    const shortIdx = parseInt(req.params.shortIndex, 10);
+    const thumbStorage = process.env.THUMBNAIL_STORAGE_DIR || path.join(__dirname, "..", "thumbnails");
+    const filePath = path.resolve(path.join(thumbStorage, "shorts", `${req.params.id}_short_${shortIdx}.png`));
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send("Short thumbnail image not found in storage directory.");
+    }
+
+    res.sendFile(filePath);
+  } catch (err) {
+    res.status(500).send("Server error occurred retrieving short thumbnail.");
   }
 });
 

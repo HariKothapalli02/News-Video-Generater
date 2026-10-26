@@ -342,6 +342,12 @@ def create_youtube_thumbnail(
 
     # Convert to RGB and save
     final_img = base_image.convert("RGB")
-    final_img.save(output_path, "PNG")
-    print(f"[Thumbnail] Professional high-CTR YouTube thumbnail created: {output_path}")
+    final_img.save(output_path, "PNG", optimize=True)
+
+    # YouTube strict limit: maximum 2MB thumbnail size
+    if os.path.exists(output_path) and os.path.getsize(output_path) > 2000000:
+        print("[Thumbnail] File size exceeds 2MB YouTube limit. Compressing to high-quality JPEG/PNG...")
+        final_img.save(output_path, "JPEG", quality=92, optimize=True)
+
+    print(f"[Thumbnail] Professional high-CTR YouTube thumbnail created: {output_path} ({os.path.getsize(output_path) / 1024:.1f} KB)")
     return output_path
