@@ -165,8 +165,8 @@ MONGODB_URI=mongodb://127.0.0.1:27017/bytewire
 
 # JWT Authentication & Admin Credentials
 JWT_SECRET=bytewire_super_secret_jwt_key_$(openssl rand -hex 16 2>/dev/null || echo '2026_prod')
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=admin123
+ADMIN_USERNAME=me@harikothapalli.space
+ADMIN_PASSWORD=Hari@2006
 
 # External AI & Media API Keys (Fill with your actual keys)
 GEMINI_API_KEY=your_gemini_api_key_here
@@ -321,7 +321,7 @@ success "=======================================================================
 echo ""
 echo -e "  \e[1mDomain URL:\e[0m           http://${DOMAIN_NAME}  (or https://${DOMAIN_NAME} with SSL)"
 echo -e "  \e[1mDirect IP URL:\e[0m        http://${PUBLIC_IP}"
-echo -e "  \e[1mDefault Login:\e[0m        Username: \e[33madmin\e[0m | Password: \e[33madmin123\e[0m"
+echo -e "  \e[1mDefault Login:\e[0m        Username: \e[33mme@harikothapalli.space\e[0m | Password: \e[33mHari@2006\e[0m"
 echo -e "  \e[1mEnvironment Config:\e[0m   $APP_DIR/.env"
 echo ""
 echo -e "  \e[1mDNS A-Record Required in Cloudflare/Hostinger/Route53:\e[0m"

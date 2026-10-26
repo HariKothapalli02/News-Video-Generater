@@ -59,7 +59,7 @@ export default function Login() {
                 required
                 value={usernameInput}
                 onChange={(e) => setUsernameInput(e.target.value)}
-                placeholder="admin"
+                placeholder="Enter username or email"
                 className="w-full pl-9 pr-3 py-2 bg-black border border-zinc-800 rounded-none text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-white transition-colors"
               />
             </div>
@@ -101,11 +101,6 @@ export default function Login() {
             )}
           </button>
         </form>
-
-        {/* Setup notice */}
-        <div className="mt-6 text-center text-[10px] text-zinc-600 border-t border-zinc-900 pt-3">
-          Default: <code className="text-zinc-400">admin / admin123</code>
-        </div>
       </div>
     </div>
   );

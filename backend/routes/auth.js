@@ -9,8 +9,8 @@ require("dotenv").config({ path: path.join(__dirname, "..", "..", ".env") });
 // @access  Public
 router.post("/login", (req, res) => {
   const { username, password } = req.body;
-  const adminUser = process.env.ADMIN_USERNAME || "admin";
-  const adminPass = process.env.ADMIN_PASSWORD || "admin123";
+  const adminUser = process.env.ADMIN_USERNAME || "me@harikothapalli.space";
+  const adminPass = process.env.ADMIN_PASSWORD || "Hari@2006";
 
   if (!username || !password) {
     return res.status(400).json({ msg: "Please enter all fields" });
