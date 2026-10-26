@@ -232,7 +232,7 @@ sudo tee "$NGINX_CONF_PATH" > /dev/null << EOF
 server {
     listen 80;
     listen [::]:80;
-    server_name $DOMAIN_NAME 13.50.251.226 _;
+    server_name $DOMAIN_NAME 3.25.196.104 _;
 
     client_max_body_size 150M;
 
