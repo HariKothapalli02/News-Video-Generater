@@ -11,6 +11,7 @@ class VideoQueue {
     this.childProcess = null;
     this.io = null;
     this.logsBuffer = "";
+    this.pendingQueue = [];
   }
 
   isBusy() {
@@ -27,7 +28,13 @@ class VideoQueue {
 
   async startJob(videoDoc, io) {
     if (this.isBusy()) {
-      throw new Error("Another generation process is currently running.");
+      console.log(`[VideoQueue] Worker is busy. Enqueuing job '${videoDoc.title}' (${videoDoc._id})...`);
+      this.pendingQueue.push({ videoDoc, io });
+      videoDoc.status = "Pending";
+      videoDoc.logs = (videoDoc.logs || "") + "\n[SYSTEM] Enqueued job in queue. Will start automatically after current video finishes.";
+      await videoDoc.save();
+      this.broadcastUpdate(videoDoc);
+      return { queued: true, position: this.pendingQueue.length };
     }
 
     if (io) this.setIo(io);
@@ -60,7 +67,10 @@ class VideoQueue {
     } else if (fs.existsSync(venvBinWin)) {
       pythonBin = venvBinWin;
     } else if (process.env.PYTHON_PATH) {
-      pythonBin = process.env.PYTHON_PATH;
+      const pPath = process.env.PYTHON_PATH.trim();
+      if (!(process.platform !== "win32" && /^[a-zA-Z]:/.test(pPath))) {
+        pythonBin = pPath;
+      }
     }
 
     const args = [
@@ -119,10 +129,16 @@ class VideoQueue {
         latestDoc.progress = 100;
         latestDoc.videoPath = `/videos/${jobId}.mp4`;
         latestDoc.thumbnail = `/thumbnails/${jobId}.png`;
-        this.logsBuffer += `\n[SYSTEM] Video and 3 Shorts generated successfully. Saved locally and queued for scheduled publishing (Full Video at 6:00 AM, Shorts at 9:00 AM, 2:00 PM, 6:00 PM).`;
+        this.logsBuffer += `\n[SYSTEM] Full video and 3 Shorts generated successfully! Saved locally.`;
         latestDoc.logs = this.logsBuffer;
         await latestDoc.save();
         this.broadcastUpdate(latestDoc);
+
+        // 1. Immediately upload completed full video to YouTube via webhook uploader
+        await this.autoUploadToYouTube(latestDoc);
+
+        // 2. Chaining: If this was automated Telugu video, trigger English generation next
+        await this.checkAndTriggerNextJob(latestDoc);
       } else {
         latestDoc.status = "Failed";
         latestDoc.progress = 0;
@@ -135,10 +151,105 @@ class VideoQueue {
         latestDoc.logs = this.logsBuffer;
         await latestDoc.save();
         this.broadcastUpdate(latestDoc);
+
+        // Check if there are other jobs in queue despite failure
+        this.processNextInQueue();
       }
 
       this.clearState();
     });
+  }
+
+  async autoUploadToYouTube(videoDoc) {
+    if (videoDoc.disableAutoUpload) {
+      console.log(`[VideoQueue] Auto-upload disabled for video '${videoDoc.title}'.`);
+      return;
+    }
+    const webhookUrl = process.env.N8N_WEBHOOK_URL;
+    if (!webhookUrl) {
+      console.log(`[VideoQueue] N8N_WEBHOOK_URL not configured. Video saved locally.`);
+      this.logsBuffer += `\n[SYSTEM] Notice: Video ready locally. Configure N8N_WEBHOOK_URL in .env to enable instant YouTube publishing.`;
+      videoDoc.logs = this.logsBuffer;
+      await videoDoc.save();
+      this.broadcastUpdate(videoDoc);
+      return;
+    }
+
+    console.log(`[VideoQueue] 🚀 Video generated! Automatically uploading '${videoDoc.title}' to YouTube...`);
+    this.logsBuffer += `\n[SYSTEM] Video generation completed. Automatically uploading full video to YouTube...`;
+    videoDoc.isUploading = true;
+    videoDoc.uploadStartedAt = new Date();
+    videoDoc.logs = this.logsBuffer;
+    await videoDoc.save();
+    this.broadcastUpdate(videoDoc);
+
+    const { dispatchFullVideoToWebhook } = require("./webhookDispatcher");
+    try {
+      const dispatchResult = await dispatchFullVideoToWebhook(videoDoc);
+      videoDoc.isUploading = false;
+      if (dispatchResult.dispatched) {
+        let ytId = "";
+        if (dispatchResult.response) {
+          const respObj = Array.isArray(dispatchResult.response) ? dispatchResult.response[0] : dispatchResult.response;
+          ytId = respObj?.youtubeVideoId || respObj?.uploadId || respObj?.id || "";
+        }
+        if (ytId) {
+          videoDoc.isPosted = true;
+          videoDoc.postedAt = new Date();
+          videoDoc.youtubeVideoId = ytId;
+          videoDoc.youtubeUrl = `https://www.youtube.com/watch?v=${ytId}`;
+        }
+        this.logsBuffer += `\n[SYSTEM] Full video successfully dispatched to YouTube for publishing!`;
+      } else {
+        const reason = dispatchResult.error || dispatchResult.reason || "Dispatch failed";
+        this.logsBuffer += `\n[SYSTEM] Notice: YouTube auto-upload notification: ${reason}`;
+      }
+      videoDoc.logs = this.logsBuffer;
+      await videoDoc.save();
+      this.broadcastUpdate(videoDoc);
+    } catch (err) {
+      console.error("[VideoQueue] Error during auto upload:", err);
+      videoDoc.isUploading = false;
+      this.logsBuffer += `\n[SYSTEM] YouTube auto-upload error: ${err.message}`;
+      videoDoc.logs = this.logsBuffer;
+      await videoDoc.save();
+      this.broadcastUpdate(videoDoc);
+    }
+  }
+
+  async checkAndTriggerNextJob(latestDoc) {
+    // If completed video was automated Telugu news, automatically start English news generation next
+    if (latestDoc.isAutomated && latestDoc.language === "telugu") {
+      console.log(`[VideoQueue] 🎯 Telugu video completed! Automatically triggering English news generation next...`);
+      this.logsBuffer += `\n[SYSTEM] Telugu video completed! Starting English video generation pipeline...`;
+      latestDoc.logs = this.logsBuffer;
+      await latestDoc.save();
+      this.broadcastUpdate(latestDoc);
+
+      try {
+        const { triggerDailyEnglishGeneration } = require("./scheduler");
+        setTimeout(async () => {
+          await triggerDailyEnglishGeneration(this.io);
+        }, 3000);
+        return;
+      } catch (err) {
+        console.error("[VideoQueue] Error triggering English news generation:", err);
+      }
+    }
+
+    this.processNextInQueue();
+  }
+
+  processNextInQueue() {
+    if (this.pendingQueue && this.pendingQueue.length > 0) {
+      const nextJob = this.pendingQueue.shift();
+      console.log(`[VideoQueue] Starting next queued job (${nextJob.videoDoc._id})...`);
+      setTimeout(() => {
+        this.startJob(nextJob.videoDoc, nextJob.io || this.io).catch(err => {
+          console.error("[VideoQueue] Error starting next queued job:", err);
+        });
+      }, 2000);
+    }
   }
 
   async handleProcessOutput(data, videoDoc, isStderr = false) {

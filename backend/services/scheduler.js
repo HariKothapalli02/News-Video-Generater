@@ -4,14 +4,22 @@ const videoQueue = require("./videoQueue");
 const { dispatchFullVideoToWebhook, dispatchShortToWebhook } = require("./webhookDispatcher");
 
 // Daily Telugu News Focus (NTV, TV9, Andhra Jyothy, V6 Velugu)
-const TOPIC_ROTATION = [
-  {
-    videoType: "telugu_news",
-    subject: "telugu news",
-    language: "telugu",
-    titlePrefix: "ఈరోజు టాప్ 10 తాజా వార్తలు (Telugu News Today)"
-  }
-];
+// Daily Dual Video Pipeline Configurations: Telugu News followed by English Trending News
+const TOPIC_TELUGU = {
+  videoType: "telugu_news",
+  subject: "telugu news",
+  language: "telugu",
+  titlePrefix: "ఈరోజు టాప్ 10 తాజా వార్తలు (Telugu News Today)"
+};
+
+const TOPIC_ENGLISH = {
+  videoType: "trending_news",
+  subject: "trending news",
+  language: "english",
+  titlePrefix: "Top 10 Trending News Stories Today"
+};
+
+const TOPIC_ROTATION = [TOPIC_TELUGU, TOPIC_ENGLISH];
 
 let lastGenExecutionTime = null;
 let lastPublishExecutionTime = {
@@ -46,39 +54,29 @@ async function getNextTopic() {
 }
 
 /**
- * 04:00 AM: Daily Telugu Video & 3 Shorts Generation Pipeline.
- * Generates the full video with top 10 Telugu news from NTV, TV9, Andhra Jyothy & V6 Velugu,
- * and converts top 3 into shorts with no subtitles.
- * DOES NOT post anything to YouTube at this time.
+ * Daily Telugu Video & 3 Shorts Generation.
+ * Generates full video with top 10 Telugu news (NTV, TV9, Andhra Jyothy & V6 Velugu) without subtitles.
  */
-async function triggerDailyGeneration(io, isManual = false) {
-  if (videoQueue.isBusy()) {
-    console.warn("[Scheduler] VideoQueue is currently rendering another job. Rescheduling auto-generation in 5 minutes...");
-    setTimeout(() => triggerDailyGeneration(io, isManual), 5 * 60 * 1000);
-    return { success: false, reason: "Queue busy, delayed by 5 minutes" };
-  }
-
-  const topic = await getNextTopic();
+async function triggerDailyTeluguGeneration(io, isManual = false) {
   const dateStr = new Date().toLocaleDateString("te-IN", {
     month: "short",
     day: "numeric",
     year: "numeric"
   });
-  const videoTitle = `${topic.titlePrefix} - ${dateStr}`;
+  const videoTitle = `${TOPIC_TELUGU.titlePrefix} - ${dateStr}`;
 
-  console.log(`[Scheduler] ⏰ Auto-triggering 4:00 AM daily Telugu news generation: "${videoTitle}"`);
-  console.log(`[Scheduler] 🔒 Notice: Full video (10 news stories) and 3 Shorts will be generated locally in Telugu without subtitles. Video will be posted to YouTube at 5:30 AM.`);
+  console.log(`[Scheduler] ⏰ Starting Daily Telugu News Generation: "${videoTitle}"`);
 
   try {
     const newVideo = new Video({
       title: videoTitle,
-      subject: topic.subject || "telugu news",
-      language: topic.language || "telugu",
+      subject: TOPIC_TELUGU.subject,
+      language: TOPIC_TELUGU.language,
       status: "Pending",
       progress: 0,
       script: "",
-      logs: `Auto-scheduled 4:00 AM daily Telugu news generation (NTV, TV9, Andhra Jyothy, V6 Velugu). Initializing pipeline...`,
-      videoType: topic.videoType || "telugu_news",
+      logs: `Auto-scheduled Daily Telugu news generation (NTV, TV9, Andhra Jyothy, V6 Velugu). Initializing pipeline...`,
+      videoType: TOPIC_TELUGU.videoType,
       customPrompt: "సెలెక్ట్ చేసిన 4 న్యూస్ ఫీడ్స్ (NTV, TV9, ఆంధ్రజ్యోతి, V6 వెలుగు) నుంచి టాప్ 10 ముఖ్యమైన తాజా వార్తలతో తెలుగులో స్క్రిప్ట్ రాయండి. మొదటి 3 వార్తలు షార్ట్స్ కొరకు ఉపయోగించబడతాయి.",
       useMusic: true,
       useSubtitles: false, // Strict requirement: no subtitles for Telugu video
@@ -90,50 +88,99 @@ async function triggerDailyGeneration(io, isManual = false) {
     await newVideo.save();
     lastGenExecutionTime = new Date();
 
-    videoQueue.startJob(newVideo, io).catch((err) => {
-      console.error("[Scheduler] Error running automated video job:", err);
+    await videoQueue.startJob(newVideo, io).catch((err) => {
+      console.error("[Scheduler] Error running Telugu video job:", err);
     });
 
     return {
       success: true,
       videoId: newVideo._id,
       title: videoTitle,
-      videoType: topic.videoType
+      videoType: TOPIC_TELUGU.videoType,
+      language: "telugu"
     };
   } catch (err) {
-    console.error("[Scheduler] Failed to create automated video record:", err);
+    console.error("[Scheduler] Failed to create Telugu video record:", err);
     return { success: false, error: err.message };
   }
 }
 
 /**
- * 06:00 AM: Publish Today's Full Video to YouTube.
- * Skips automatically if the video was already manually or previously posted.
+ * Daily English Video & 3 Shorts Generation.
+ * Generates full video with top 10 global/national trending news with subtitles.
+ * Runs automatically after Telugu video finishes.
+ */
+async function triggerDailyEnglishGeneration(io, isManual = false) {
+  const dateStr = new Date().toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+  const videoTitle = `${TOPIC_ENGLISH.titlePrefix} - ${dateStr}`;
+
+  console.log(`[Scheduler] 🎬 Starting Daily English News Generation: "${videoTitle}"`);
+
+  try {
+    const newVideo = new Video({
+      title: videoTitle,
+      subject: TOPIC_ENGLISH.subject,
+      language: TOPIC_ENGLISH.language,
+      status: "Pending",
+      progress: 0,
+      script: "",
+      logs: `Auto-scheduled Daily English trending news generation. Initializing pipeline...`,
+      videoType: TOPIC_ENGLISH.videoType,
+      customPrompt: "Select the top 10 most trending news stories with maximum viral hook, high curiosity, and massive public interest. The first 3 stories will be converted into dedicated shorts.",
+      useMusic: true,
+      useSubtitles: true, // Subtitles enabled for English
+      generateShorts: true,
+      factsCount: 10,
+      isAutomated: true
+    });
+
+    await newVideo.save();
+
+    await videoQueue.startJob(newVideo, io).catch((err) => {
+      console.error("[Scheduler] Error running English video job:", err);
+    });
+
+    return {
+      success: true,
+      videoId: newVideo._id,
+      title: videoTitle,
+      videoType: TOPIC_ENGLISH.videoType,
+      language: "english"
+    };
+  } catch (err) {
+    console.error("[Scheduler] Failed to create English video record:", err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * 04:00 AM Daily Generation Pipeline:
+ * Starts the Telugu video generation first.
+ * Upon Telugu video completion, VideoQueue automatically starts the English video generation.
+ * Both videos upload automatically to YouTube when complete.
+ */
+async function triggerDailyGeneration(io, isManual = false) {
+  console.log(`[Scheduler] 🚀 Auto-triggering Daily News Pipeline (Telugu first, followed by English)...`);
+  return await triggerDailyTeluguGeneration(io, isManual);
+}
+
+
+/**
+ * 06:00 AM: Publish Today's Full Videos to YouTube.
+ * Iterates through all completed videos from today (Telugu & English) and dispatches any unposted full videos.
  */
 async function publishDailyFullVideo(io) {
-  console.log("[Scheduler] ⏰ 6:00 AM trigger fired! Publishing today's full video to YouTube...");
+  console.log("[Scheduler] ⏰ 6:00 AM trigger fired! Publishing today's full videos to YouTube...");
   try {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    // 1. Check if today's completed video was already posted or uploaded
-    const alreadyPostedToday = await Video.findOne({
-      status: "Completed",
-      createdAt: { $gte: todayStart },
-      $or: [
-        { isPosted: true },
-        { youtubeVideoId: { $exists: true, $nin: ["", null] } },
-        { youtubeUrl: { $exists: true, $nin: ["", null] } }
-      ]
-    });
-
-    if (alreadyPostedToday) {
-      console.log(`[Scheduler 6:00 AM] ⏭️ Full video '${alreadyPostedToday.title}' (${alreadyPostedToday._id}) is ALREADY posted/uploaded. Skipping automated upload.`);
-      return { success: true, skipped: true, reason: "Already posted or uploaded" };
-    }
-
-    // 2. Find today's completed video that hasn't been uploaded to YouTube yet and is not marked offline
-    let video = await Video.findOne({
+    // Find all today's completed videos that haven't been posted yet
+    let pendingVideos = await Video.find({
       status: "Completed",
       createdAt: { $gte: todayStart },
       disableAutoUpload: { $ne: true },
@@ -141,11 +188,11 @@ async function publishDailyFullVideo(io) {
       isUploading: { $ne: true },
       $or: [{ youtubeVideoId: "" }, { youtubeVideoId: null }, { youtubeVideoId: { $exists: false } }],
       $and: [{ $or: [{ youtubeUrl: "" }, { youtubeUrl: null }, { youtubeUrl: { $exists: false } }] }]
-    }).sort({ createdAt: -1 });
+    }).sort({ createdAt: 1 });
 
-    if (!video) {
-      // Fallback: look for most recent unposted completed video that is not marked offline
-      video = await Video.findOne({
+    if (pendingVideos.length === 0) {
+      // Fallback: look for most recent unposted completed video
+      const fallback = await Video.findOne({
         status: "Completed",
         disableAutoUpload: { $ne: true },
         isPosted: { $ne: true },
@@ -153,54 +200,60 @@ async function publishDailyFullVideo(io) {
         $or: [{ youtubeVideoId: "" }, { youtubeVideoId: null }, { youtubeVideoId: { $exists: false } }],
         $and: [{ $or: [{ youtubeUrl: "" }, { youtubeUrl: null }, { youtubeUrl: { $exists: false } }] }]
       }).sort({ createdAt: -1 });
+
+      if (fallback) {
+        pendingVideos = [fallback];
+      }
     }
 
-    if (!video) {
+    if (pendingVideos.length === 0) {
       console.log("[Scheduler 6:00 AM] ℹ️ No unposted completed video found for YouTube upload. All videos are posted or currently uploading.");
-      return { success: false, reason: "No pending unposted completed video" };
+      return { success: true, skipped: true, reason: "All completed videos are already posted or uploading" };
     }
 
-    console.log(`[Scheduler 6:00 AM] Found pending video '${video.title}' (${video._id}). Locking and dispatching to YouTube uploader...`);
-    // Lock immediately
-    video.isUploading = true;
-    video.uploadStartedAt = new Date();
-    await video.save();
-
-    const dispatchResult = await dispatchFullVideoToWebhook(video);
-
-    if (!dispatchResult.dispatched && !dispatchResult.timeout) {
-      video.isUploading = false;
+    const results = [];
+    for (const video of pendingVideos) {
+      console.log(`[Scheduler 6:00 AM] Found pending video '${video.title}' (${video._id}). Locking and dispatching to YouTube uploader...`);
+      video.isUploading = true;
+      video.uploadStartedAt = new Date();
       await video.save();
-      const errReason = dispatchResult.error || dispatchResult.reason || "Dispatch failed";
-      console.warn(`[Scheduler 6:00 AM] Dispatch failed for video '${video.title}': ${errReason}`);
-      return { success: false, reason: errReason };
-    }
 
-    let ytId = "";
-    if (dispatchResult.response) {
-      const respObj = Array.isArray(dispatchResult.response) ? dispatchResult.response[0] : dispatchResult.response;
-      ytId = respObj?.youtubeVideoId || respObj?.uploadId || respObj?.id || "";
-    }
+      const dispatchResult = await dispatchFullVideoToWebhook(video);
 
-    video.isUploading = false;
-    // Only mark posted if real YouTube ID returned
-    if (ytId) {
-      video.isPosted = true;
-      video.postedAt = new Date();
-      video.youtubeVideoId = ytId;
-      video.youtubeUrl = `https://www.youtube.com/watch?v=${ytId}`;
+      if (!dispatchResult.dispatched && !dispatchResult.timeout) {
+        video.isUploading = false;
+        await video.save();
+        const errReason = dispatchResult.error || dispatchResult.reason || "Dispatch failed";
+        console.warn(`[Scheduler 6:00 AM] Dispatch failed for video '${video.title}': ${errReason}`);
+        results.push({ videoId: video._id, success: false, reason: errReason });
+        continue;
+      }
+
+      let ytId = "";
+      if (dispatchResult.response) {
+        const respObj = Array.isArray(dispatchResult.response) ? dispatchResult.response[0] : dispatchResult.response;
+        ytId = respObj?.youtubeVideoId || respObj?.uploadId || respObj?.id || "";
+      }
+
+      video.isUploading = false;
+      if (ytId) {
+        video.isPosted = true;
+        video.postedAt = new Date();
+        video.youtubeVideoId = ytId;
+        video.youtubeUrl = `https://www.youtube.com/watch?v=${ytId}`;
+      }
+      await video.save();
+
+      if (io) {
+        io.emit("video_updated", video);
+        io.emit("job_update", video);
+      }
+
+      results.push({ videoId: video._id, success: true, dispatchResult });
     }
-    await video.save();
 
     lastPublishExecutionTime.fullVideo = new Date();
-
-    if (io) {
-      io.emit("video_updated", video);
-      io.emit("job_update", video);
-    }
-
-    console.log(`[Scheduler 6:00 AM] Full video dispatched successfully. Result:`, dispatchResult.dispatched);
-    return { success: true, videoId: video._id, dispatchResult };
+    return { success: true, results };
   } catch (err) {
     console.error("[Scheduler 6:00 AM] Error publishing full video:", err);
     return { success: false, error: err.message };
@@ -210,6 +263,7 @@ async function publishDailyFullVideo(io) {
 /**
  * 09:00 AM, 02:00 PM (14:00), 06:00 PM (18:00): Publish Individual Short to YouTube.
  * Skips automatically if the short was already manually or previously posted.
+ * Supports multiple daily videos (Telugu & English) by checking all candidate videos from today.
  * @param {Object} io - Socket.io instance
  * @param {number} shortIdx - 1, 2, or 3
  */
@@ -221,91 +275,98 @@ async function publishDailyShort(io, shortIdx) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    // Look for today's completed video
-    let video = await Video.findOne({
+    // Look for today's completed videos with shorts (Telugu first, then English)
+    let candidateVideos = await Video.find({
       status: "Completed",
-      createdAt: { $gte: todayStart }
-    }).sort({ createdAt: -1 });
+      createdAt: { $gte: todayStart },
+      "shorts.0": { $exists: true }
+    }).sort({ createdAt: 1 });
 
-    if (!video || !video.shorts || video.shorts.length === 0) {
+    if (candidateVideos.length === 0) {
       // Fallback: look for most recent completed video with shorts
-      video = await Video.findOne({
+      const fallback = await Video.findOne({
         status: "Completed",
         "shorts.0": { $exists: true }
       }).sort({ createdAt: -1 });
+      if (fallback) candidateVideos = [fallback];
     }
 
-    if (!video) {
+    if (candidateVideos.length === 0) {
       console.log(`[Scheduler ${slotName}] ℹ️ No completed video with shorts found.`);
       return { success: false, reason: "No video found" };
     }
 
-    const short = (video.shorts || []).find((s, idx) => (s.factIndex === shortIdx || idx + 1 === shortIdx));
-    if (!short) {
-      console.log(`[Scheduler ${slotName}] ℹ️ Short #${shortIdx} not found in video '${video.title}'.`);
-      return { success: false, reason: "Short not found" };
-    }
+    const results = [];
+    for (const video of candidateVideos) {
+      const short = (video.shorts || []).find((s, idx) => (s.factIndex === shortIdx || idx + 1 === shortIdx));
+      if (!short) {
+        continue;
+      }
 
-    // Skip if upload disabled on whole video or on this specific short
-    if (video.disableAutoUpload || short.disableAutoUpload) {
-      console.log(`[Scheduler ${slotName}] 🚫 Auto-upload disabled for video '${video.title}' or Short #${shortIdx}. Skipping.`);
-      return { success: true, skipped: true, reason: "Auto-upload disabled for this video/short" };
-    }
+      // Skip if upload disabled on whole video or on this specific short
+      if (video.disableAutoUpload || short.disableAutoUpload) {
+        console.log(`[Scheduler ${slotName}] 🚫 Auto-upload disabled for video '${video.title}' or Short #${shortIdx}. Skipping.`);
+        continue;
+      }
 
-    // Skip if already posted or manually uploaded
-    if (short.isPosted || short.youtubeShortId || short.youtubeShortUrl) {
-      console.log(`[Scheduler ${slotName}] ⏭️ Short #${shortIdx} for video '${video.title}' is ALREADY posted/uploaded. Skipping automatic upload.`);
-      return { success: true, skipped: true, reason: "Short already posted or uploaded" };
-    }
+      // Skip if already posted or manually uploaded
+      if (short.isPosted || short.youtubeShortId || short.youtubeShortUrl) {
+        console.log(`[Scheduler ${slotName}] ⏭️ Short #${shortIdx} for video '${video.title}' is ALREADY posted/uploaded. Skipping.`);
+        continue;
+      }
 
-    // Skip if currently uploading
-    const isUploadingStale = short.uploadStartedAt && (Date.now() - new Date(short.uploadStartedAt).getTime() > 15 * 60 * 1000);
-    if (short.isUploading && !isUploadingStale) {
-      console.log(`[Scheduler ${slotName}] ⏳ Short #${shortIdx} for video '${video.title}' is currently uploading. Skipping duplicate trigger.`);
-      return { success: true, skipped: true, reason: "Short upload in progress" };
-    }
+      // Skip if currently uploading
+      const isUploadingStale = short.uploadStartedAt && (Date.now() - new Date(short.uploadStartedAt).getTime() > 15 * 60 * 1000);
+      if (short.isUploading && !isUploadingStale) {
+        console.log(`[Scheduler ${slotName}] ⏳ Short #${shortIdx} for video '${video.title}' is currently uploading. Skipping.`);
+        continue;
+      }
 
-    console.log(`[Scheduler ${slotName}] Found Short #${shortIdx} ('${short.title}'). Locking and dispatching to YouTube uploader...`);
-    short.isUploading = true;
-    short.uploadStartedAt = new Date();
-    await video.save();
-
-    const dispatchResult = await dispatchShortToWebhook({ video, short, shortIdx });
-
-    if (!dispatchResult.dispatched && !dispatchResult.timeout) {
-      short.isUploading = false;
+      console.log(`[Scheduler ${slotName}] Found Short #${shortIdx} ('${short.title}') for video '${video.title}'. Locking and dispatching to YouTube uploader...`);
+      short.isUploading = true;
+      short.uploadStartedAt = new Date();
       await video.save();
-      const errReason = dispatchResult.error || dispatchResult.reason || "Dispatch failed";
-      console.warn(`[Scheduler ${slotName}] Dispatch failed for Short #${shortIdx}: ${errReason}`);
-      return { success: false, reason: errReason };
-    }
 
-    let ytId = "";
-    if (dispatchResult.response) {
-      const respObj = Array.isArray(dispatchResult.response) ? dispatchResult.response[0] : dispatchResult.response;
-      ytId = respObj?.youtubeShortId || respObj?.uploadId || respObj?.id || "";
-    }
+      const dispatchResult = await dispatchShortToWebhook({ video, short, shortIdx });
 
-    short.isUploading = false;
-    // Only mark posted if real YouTube ID returned
-    if (ytId) {
-      short.isPosted = true;
-      short.postedAt = new Date();
-      short.youtubeShortId = ytId;
-      short.youtubeShortUrl = `https://www.youtube.com/shorts/${ytId}`;
+      if (!dispatchResult.dispatched && !dispatchResult.timeout) {
+        short.isUploading = false;
+        await video.save();
+        const errReason = dispatchResult.error || dispatchResult.reason || "Dispatch failed";
+        console.warn(`[Scheduler ${slotName}] Dispatch failed for Short #${shortIdx} (${video.title}): ${errReason}`);
+        results.push({ videoId: video._id, shortIdx, success: false, reason: errReason });
+        continue;
+      }
+
+      let ytId = "";
+      if (dispatchResult.response) {
+        const respObj = Array.isArray(dispatchResult.response) ? dispatchResult.response[0] : dispatchResult.response;
+        ytId = respObj?.youtubeShortId || respObj?.uploadId || respObj?.id || "";
+      }
+
+      short.isUploading = false;
+      // Only mark posted if real YouTube ID returned
+      if (ytId) {
+        short.isPosted = true;
+        short.postedAt = new Date();
+        short.youtubeShortId = ytId;
+        short.youtubeShortUrl = `https://www.youtube.com/shorts/${ytId}`;
+      }
+      await video.save();
+
+      if (io) {
+        io.emit("video_updated", video);
+      }
+
+      console.log(`[Scheduler ${slotName}] Short #${shortIdx} for '${video.title}' dispatched successfully. Result:`, dispatchResult.dispatched);
+      results.push({ videoId: video._id, shortIdx, success: true, dispatchResult });
     }
-    await video.save();
 
     if (shortIdx === 1) lastPublishExecutionTime.short1 = new Date();
     if (shortIdx === 2) lastPublishExecutionTime.short2 = new Date();
     if (shortIdx === 3) lastPublishExecutionTime.short3 = new Date();
 
-    if (io) {
-      io.emit("video_updated", video);
-    }
-
-    console.log(`[Scheduler ${slotName}] Short #${shortIdx} dispatched successfully. Result:`, dispatchResult.dispatched);
-    return { success: true, videoId: video._id, shortIdx, dispatchResult };
+    return { success: true, results };
   } catch (err) {
     console.error(`[Scheduler ${slotName}] Error publishing Short #${shortIdx}:`, err);
     return { success: false, error: err.message };
@@ -415,6 +476,8 @@ function getSchedulerStatus() {
 module.exports = {
   initScheduler,
   triggerDailyGeneration,
+  triggerDailyTeluguGeneration,
+  triggerDailyEnglishGeneration,
   publishDailyFullVideo,
   publishDailyShort,
   getNextTopic,

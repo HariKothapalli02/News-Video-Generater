@@ -23,6 +23,27 @@ def get_ffmpeg_exe():
         return "ffmpeg"
 
 
+
+def normalize_path(path_str, default_fallback="videos"):
+    """
+    Safely resolves directory paths across Windows and Linux.
+    Prevents invalid Windows drive paths (e.g. 'D:/...') from causing protocol errors in FFmpeg on Linux.
+    """
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if not path_str:
+        return os.path.abspath(os.path.join(base_dir, default_fallback))
+    path_str = str(path_str).strip()
+    if os.name != "nt" and re.match(r"^[a-zA-Z]:", path_str):
+        for candidate in ["videos", "thumbnails", "logs"]:
+            if candidate in path_str.lower():
+                return os.path.abspath(os.path.join(base_dir, candidate))
+        rel = re.sub(r"^[a-zA-Z]:[\\/]*", "", path_str)
+        return os.path.abspath(os.path.join(base_dir, rel))
+    if not os.path.isabs(path_str):
+        return os.path.abspath(os.path.join(base_dir, path_str))
+    return os.path.abspath(path_str)
+
+
 NUMBER_WORDS = {
     1: ["1", "one", "first", "1st", "won", "ek", "pahla", "pehla", "okati", "modata", "ఒకటి", "ఒకటో"],
     2: ["2", "two", "second", "2nd", "to", "too", "do", "dusra", "doosra", "rendu", "rendava", "రెండు", "రెండో"],
@@ -36,6 +57,11 @@ NUMBER_WORDS = {
     10: ["10", "ten", "tenth", "10th", "das", "padi", "padava", "పది", "పదో"]
 }
 
+SPOKEN_MARKERS = [
+    "fact", "story", "news", "headline", "topic", "point", "number", "item", "top",
+    "వార్త", "స్టోరీ", "నెంబర్", "ఫాక్ట్", "టాప్"
+]
+
 
 def clean_token(w):
     return re.sub(r"[^a-zA-Z0-9\u0900-\u097F\u0C00-\u0C7F]", "", str(w).lower()).strip()
@@ -43,28 +69,34 @@ def clean_token(w):
 
 def parse_facts_from_script(script_text):
     """
-    Parses 'Fact 1' through 'Fact N' from the news narration script.
+    Parses 'Fact 1' through 'Fact N' (or 'Story N', 'వార్త N', 'N.') from the news narration script.
     Handles any whitespace formatting, Markdown, colons, or punctuation.
     """
     if not script_text:
         return []
 
-    # Normalize newlines
     normalized = script_text.replace("\r\n", "\n").replace("\r", "\n")
 
     facts = []
-    # Match headers like "Fact 1", "**Fact 1**", "FACT 1:", "Fact 1 -", etc.
-    header_pattern = re.compile(r"(?:^|\n)\s*(?:\*\*)?(?:Fact|FACT)\s+(\d+)[\s:\-\.]*(?:\*\*)?", re.IGNORECASE)
+    # Match headers like "Fact 1", "**Fact 1**", "FACT 1:", "Story 1", "వార్త 1", "1. Title", etc.
+    header_pattern = re.compile(
+        r"(?:^|\n)\s*(?:\*\*)?(?:Fact|FACT|Story|STORY|వార్త|స్టోరీ)\s+(\d+)[\s:\-\.]*(?:\*\*)?",
+        re.IGNORECASE
+    )
     matches = list(header_pattern.finditer(normalized))
+
+    # If no "Fact N" headers matched, try digit list items like "1. ", "2. ", "[1]"
+    if len(matches) < 2:
+        alt_pattern = re.compile(r"(?:^|\n)\s*(?:\*\*)?(?:\[|\()?(\d+)(?:\]|\)|\.|\:)\s*(?:\*\*)?", re.IGNORECASE)
+        matches = list(alt_pattern.finditer(normalized))
 
     for i, m in enumerate(matches):
         fact_num = int(m.group(1))
         content_start = m.end()
-        # End at the next Fact header or Outro or end of string
         if i + 1 < len(matches):
             content_end = matches[i + 1].start()
         else:
-            outro_m = re.search(r"(?:^|\n)\s*(?:\*\*)?(?:Outro|OUTRO)\b", normalized[content_start:], re.IGNORECASE)
+            outro_m = re.search(r"(?:^|\n)\s*(?:\*\*)?(?:Outro|OUTRO|ముగింపు)\b", normalized[content_start:], re.IGNORECASE)
             content_end = content_start + outro_m.start() if outro_m else len(normalized)
 
         section = normalized[content_start:content_end].strip()
@@ -85,7 +117,9 @@ def parse_facts_from_script(script_text):
         lines = [line.strip().strip("*#") for line in normalized.split("\n") if line.strip().strip("*#")]
         current_fact = None
         for line in lines:
-            fact_match = re.match(r"^(?:Fact|FACT)\s+(\d+)", line, re.IGNORECASE)
+            fact_match = re.match(r"^(?:Fact|FACT|Story|STORY|వార్త|స్టోరీ)\s+(\d+)", line, re.IGNORECASE)
+            if not fact_match:
+                fact_match = re.match(r"^(\d+)[\.\:\)]\s*", line)
             if fact_match:
                 if current_fact:
                     current_fact["full_text"] = f"{current_fact['title']}. {current_fact['description']}".strip()
@@ -114,160 +148,134 @@ def parse_facts_from_script(script_text):
 def detect_fact_timestamps(facts, audio_words, total_duration, intro_offset=0.0):
     """
     Calculates exact start and end timestamps in seconds for each fact within the final video.
-    Guarantees clean boundary cuts without the next fact's number (e.g. 'Fact 4') bleeding into the short.
+    Uses proportional word-count estimation combined with constrained audio search to ensure
+    each short is between 28s and 58s with natural, non-bleeding boundaries.
     """
     if not facts:
         return []
 
     count = len(facts)
-    fact_starts = [None] * count
+    usable_duration = max(20.0, total_duration - intro_offset)
+
+    # 1. Calculate proportional distribution based on script text length
+    word_counts = []
+    for f in facts:
+        w_cnt = len(f.get("title", "").split()) + len(f.get("description", "").split())
+        word_counts.append(max(5, w_cnt))
+    total_words = sum(word_counts)
+    outro_word_est = max(10, int(total_words * 0.08))
+    effective_total_words = total_words + outro_word_est
+
+    proportional_starts = [0.0] * count
+    proportional_ends = [0.0] * count
+    accumulated_dur = 0.0
+
+    for idx in range(count):
+        fact_dur = (word_counts[idx] / effective_total_words) * usable_duration
+        # Constrain each fact duration reasonably
+        fact_dur = max(25.0, min(55.0, fact_dur))
+        proportional_starts[idx] = accumulated_dur
+        proportional_ends[idx] = min(usable_duration, accumulated_dur + fact_dur)
+        accumulated_dur += fact_dur
+
+    fact_starts = list(proportional_starts)
     fact_start_indices = [None] * count
 
+    # 2. Refine timestamps using Whisper word timestamps within a safe, bounded window
     if audio_words and len(audio_words) > 5:
         words_list = audio_words
         w_len = len(words_list)
-        curr_search_idx = 0
 
         for idx, fact in enumerate(facts):
             f_idx = fact["factIndex"]
             valid_nums = set(NUMBER_WORDS.get(f_idx, [str(f_idx)]))
-            target_words = [clean_token(w) for w in fact["title"].split() if len(clean_token(w)) > 2][:4]
+            target_words = [clean_token(w) for w in fact["title"].split() if len(clean_token(w)) > 2][:5]
+
+            exp_start = proportional_starts[idx]
+            # Search within a safe +/- 12s window around expected start time
+            win_min = max(0.0, exp_start - 12.0)
+            win_max = min(usable_duration, exp_start + 14.0)
 
             matched_time = None
             matched_idx = None
 
-            # Priority 1: Spoken marker e.g. "Fact 4", "Story 4", "Topic 4", "Point 4"
-            for i in range(curr_search_idx, w_len - 1):
+            # Priority 1: Spoken marker e.g. "Fact 2", "Story 2", "వార్త 2" in window
+            for i in range(w_len - 1):
+                w_start = words_list[i]["start"]
+                if w_start < win_min:
+                    continue
+                if w_start > win_max:
+                    break
                 w1 = clean_token(words_list[i]["word"])
                 w2 = clean_token(words_list[i + 1]["word"])
-                if w1 in ["fact", "number", "story", "topic", "point", "item", "headline", "news"] and w2 in valid_nums:
-                    matched_time = words_list[i]["start"]
-                    matched_idx = i
-                    break
-                # Handle merged tokens like "fact1", "fact2", "fact4", "factfour", "factfor"
-                if w1.startswith("fact") and any(w1.endswith(num) for num in valid_nums):
-                    matched_time = words_list[i]["start"]
-                    matched_idx = i
-                    break
-                if w1.startswith("story") and any(w1.endswith(num) for num in valid_nums):
-                    matched_time = words_list[i]["start"]
+                if (w1 in SPOKEN_MARKERS and w2 in valid_nums) or \
+                   (w1.startswith("fact") and any(w1.endswith(num) for num in valid_nums)) or \
+                   (w1.startswith("story") and any(w1.endswith(num) for num in valid_nums)):
+                    matched_time = w_start
                     matched_idx = i
                     break
 
-            # Priority 2: Standalone digit / number word after silence gap or matching title
+            # Priority 2: Title words cluster match in window
+            if matched_time is None and target_words:
+                target_set = set(target_words)
+                for i in range(w_len - 2):
+                    w_start = words_list[i]["start"]
+                    if w_start < win_min:
+                        continue
+                    if w_start > win_max:
+                        break
+                    window_tokens = [clean_token(words_list[i + k]["word"]) for k in range(min(6, w_len - i))]
+                    matches = sum(1 for tw in target_set if tw in window_tokens)
+                    if matches >= 2:
+                        matched_time = w_start
+                        matched_idx = i
+                        break
+
+            # Priority 3: Standalone number token in window
             if matched_time is None:
-                for i in range(curr_search_idx, w_len):
+                for i in range(w_len):
+                    w_start = words_list[i]["start"]
+                    if w_start < win_min:
+                        continue
+                    if w_start > win_max:
+                        break
                     w = clean_token(words_list[i]["word"])
                     if w in valid_nums:
                         prev_end = words_list[i - 1]["end"] if i > 0 else 0
-                        silence = words_list[i]["start"] - prev_end
-                        # If preceded by silence >= 0.4s, or followed by a title word
-                        next_w = clean_token(words_list[i + 1]["word"]) if i + 1 < w_len else ""
-                        if silence >= 0.4 or (target_words and next_w in target_words):
-                            matched_time = words_list[i]["start"]
+                        if words_list[i]["start"] - prev_end >= 0.35:
+                            matched_time = w_start
                             matched_idx = i
                             break
-
-            # Priority 3: Sliding window match on title words
-            if matched_time is None and target_words:
-                target_set = set(target_words)
-                window_size = min(8, w_len - curr_search_idx)
-                for i in range(curr_search_idx, w_len - 2):
-                    window_words = [clean_token(words_list[i + k]["word"]) for k in range(min(window_size, w_len - i))]
-                    matches = sum(1 for tw in target_set if tw in window_words)
-                    if matches >= min(2, len(target_set)):
-                        matched_time = words_list[i]["start"]
-                        matched_idx = i
-                        break
 
             if matched_time is not None:
                 fact_starts[idx] = matched_time
                 fact_start_indices[idx] = matched_idx
-                curr_search_idx = min(w_len - 1, matched_idx + 1)
 
-    # Validate and fill missing start timestamps with proportional interpolation
-    usable_duration = max(10.0, total_duration - intro_offset)
-    proportional_step = usable_duration / (count + 1)
-
-    for idx in range(count):
-        if fact_starts[idx] is None:
-            estimated_start = (idx + 0.5) * proportional_step
-            fact_starts[idx] = estimated_start
-
-    # Ensure strictly increasing start times with at least 8s spacing
+    # Ensure strictly increasing start times with at least 25s spacing
     for idx in range(1, count):
-        if fact_starts[idx] <= fact_starts[idx - 1]:
-            fact_starts[idx] = fact_starts[idx - 1] + 10.0
+        if fact_starts[idx] <= fact_starts[idx - 1] + 20.0:
+            fact_starts[idx] = fact_starts[idx - 1] + 25.0
 
-    # Build final segments with intro_offset and precise, non-overlapping end times
+    # Build final segments with intro_offset and non-overlapping clean boundaries
     segments = []
-    w_len = len(audio_words) if audio_words else 0
-
     for idx in range(count):
         start_audio = fact_starts[idx]
-        f_idx = facts[idx]["factIndex"]
-
-        # Determine exact end timestamp
         if idx < count - 1:
             next_start = fact_starts[idx + 1]
-            next_idx = fact_start_indices[idx + 1]
-
-            if audio_words and next_idx is not None and next_idx > 0:
-                last_word_idx = next_idx - 1
-                last_word_end = audio_words[last_word_idx]["end"]
-                # Cut cleanly during the silence gap: at least 0.6s before next fact begins
-                end_audio = min(last_word_end + 0.25, next_start - 0.6)
-            else:
-                end_audio = next_start - 0.7
+            end_audio = next_start - 0.5
         else:
-            # Last fact in list: check if next fact marker (e.g. Fact 4 when count=3) or outro starts
-            next_f_num = f_idx + 1
-            valid_next_nums = set(NUMBER_WORDS.get(next_f_num, [str(next_f_num)]))
-            found_next_start = None
-            found_last_word_end = None
+            end_audio = min(usable_duration, start_audio + 45.0)
 
-            if audio_words:
-                start_w_idx = fact_start_indices[idx] or 0
-                for i in range(start_w_idx + 2, w_len - 1):
-                    w = clean_token(audio_words[i]["word"])
-                    w_next = clean_token(audio_words[i + 1]["word"])
-                    # Check for next fact marker (e.g. "Fact 4")
-                    if (w in ["fact", "number", "story", "topic", "point", "item"] and w_next in valid_next_nums) or \
-                       (w.startswith("fact") and any(w.endswith(num) for num in valid_next_nums)) or \
-                       (w in valid_next_nums and (audio_words[i]["start"] - audio_words[i-1]["end"] >= 0.4)):
-                        found_next_start = audio_words[i]["start"]
-                        found_last_word_end = audio_words[i - 1]["end"] if i > 0 else found_next_start - 0.6
-                        break
-                    # Check for outro / subscribe marker
-                    if (w in ["outro", "subscribe"]) or (w == "those" and w_next in ["were", "was"]):
-                        found_next_start = audio_words[i]["start"]
-                        found_last_word_end = audio_words[i - 1]["end"] if i > 0 else found_next_start - 0.6
-                        break
-
-            if found_next_start is not None:
-                # Strictly cut before next fact starts (0.6s buffer)
-                end_audio = min(found_last_word_end + 0.25 if found_last_word_end else found_next_start - 0.6, found_next_start - 0.6)
-            else:
-                # Estimate duration strictly based on words in this fact's description & title
-                desc_words = len(facts[idx].get("description", "").split()) + len(facts[idx].get("title", "").split())
-                est_seconds = max(8.0, min(35.0, (desc_words / 2.2) + 1.5))
-                end_audio = min(total_duration - intro_offset - 0.5, start_audio + est_seconds)
-
-        # STRICT NON-BLEED CLAMP: If next_start or next fact boundary is known, NEVER exceed next_start - 0.6
-        if idx < count - 1:
-            end_audio = min(end_audio, fact_starts[idx + 1] - 0.6)
-
-        # Duration bounds (Shorts max 58s)
-        duration = end_audio - start_audio
-        if duration > 58.0:
+        # Enforce Short duration limits: strictly between 28.0s and 58.0s
+        dur = end_audio - start_audio
+        if dur > 58.0:
             end_audio = start_audio + 58.0
-        elif duration < 4.0:
-            # If duration is very short, extend slightly but NEVER exceed next_start buffer
-            max_allowed = (fact_starts[idx + 1] - 0.6) if (idx < count - 1) else (total_duration - intro_offset)
-            end_audio = min(max_allowed, start_audio + 5.0)
+        elif dur < 25.0:
+            end_audio = min(usable_duration, start_audio + 30.0)
 
         v_start = round(intro_offset + start_audio, 2)
         v_end = round(min(total_duration, intro_offset + end_audio), 2)
+        final_dur = round(max(5.0, v_end - v_start), 2)
 
         segments.append({
             "factIndex": facts[idx]["factIndex"],
@@ -275,10 +283,11 @@ def detect_fact_timestamps(facts, audio_words, total_duration, intro_offset=0.0)
             "description": facts[idx]["description"],
             "startTime": v_start,
             "endTime": v_end,
-            "duration": round(v_end - v_start, 2)
+            "duration": final_dur
         })
 
     return segments
+
 
 
 def create_vertical_short(ffmpeg_exe, video_source_path, output_short_path, output_thumb_path, start_time, end_time, is_already_vertical=False):
@@ -287,6 +296,10 @@ def create_vertical_short(ffmpeg_exe, video_source_path, output_short_path, outp
     Uses frame-accurate -ss and -to to guarantee exact start and end cuts.
     """
     duration = max(3.0, end_time - start_time)
+    output_short_path = os.path.abspath(output_short_path)
+    output_thumb_path = os.path.abspath(output_thumb_path)
+    os.makedirs(os.path.dirname(output_short_path), exist_ok=True)
+    os.makedirs(os.path.dirname(output_thumb_path), exist_ok=True)
 
     if is_already_vertical:
         cmd = [
@@ -295,7 +308,7 @@ def create_vertical_short(ffmpeg_exe, video_source_path, output_short_path, outp
             "-accurate_seek",
             "-ss", str(start_time),
             "-to", str(end_time),
-            "-i", video_source_path,
+            "-i", os.path.abspath(video_source_path),
             "-avoid_negative_ts", "make_zero",
             "-c:v", "libx264",
             "-preset", "veryfast",
@@ -313,7 +326,7 @@ def create_vertical_short(ffmpeg_exe, video_source_path, output_short_path, outp
             "-accurate_seek",
             "-ss", str(start_time),
             "-to", str(end_time),
-            "-i", video_source_path,
+            "-i", os.path.abspath(video_source_path),
             "-avoid_negative_ts", "make_zero",
             "-vf", vf_filter,
             "-c:v", "libx264",
@@ -325,7 +338,12 @@ def create_vertical_short(ffmpeg_exe, video_source_path, output_short_path, outp
             output_short_path
         ]
 
-    subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as e:
+        err_msg = e.stderr.decode("utf-8", errors="ignore") if e.stderr else str(e)
+        print(f"[LOG] FFmpeg slicing error: {err_msg}")
+        raise
 
     # Extract high quality 9:16 thumbnail frame fast
     thumb_time = min(1.0, duration / 2.0)
@@ -338,7 +356,10 @@ def create_vertical_short(ffmpeg_exe, video_source_path, output_short_path, outp
         "-q:v", "2",
         output_thumb_path
     ]
-    subprocess.run(thumb_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        subprocess.run(thumb_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except Exception as e:
+        print(f"[LOG] Notice generating short thumbnail: {e}")
 
 
 def extract_all_shorts(
@@ -359,13 +380,14 @@ def extract_all_shorts(
     Guarantees that Fact 3 NEVER bleeds into Fact 4.
     """
     ffmpeg_exe = get_ffmpeg_exe()
+    video_path = os.path.abspath(video_path)
 
-    # Determine storage folders
-    v_dir = video_storage_dir or os.getenv("VIDEO_STORAGE_DIR", "videos")
-    t_dir = thumbnail_storage_dir or os.getenv("THUMBNAIL_STORAGE_DIR", "thumbnails")
+    # Determine storage folders safely
+    v_dir = normalize_path(video_storage_dir or os.getenv("VIDEO_STORAGE_DIR"), "videos")
+    t_dir = normalize_path(thumbnail_storage_dir or os.getenv("THUMBNAIL_STORAGE_DIR"), "thumbnails")
 
-    shorts_video_dir = os.path.join(v_dir, "shorts")
-    shorts_thumb_dir = os.path.join(t_dir, "shorts")
+    shorts_video_dir = os.path.abspath(os.path.join(v_dir, "shorts"))
+    shorts_thumb_dir = os.path.abspath(os.path.join(t_dir, "shorts"))
     os.makedirs(shorts_video_dir, exist_ok=True)
     os.makedirs(shorts_thumb_dir, exist_ok=True)
 
@@ -563,7 +585,7 @@ def main():
 
     # Fallback to persistent words.json in video storage or scratch
     if not audio_words:
-        v_dir = os.getenv("VIDEO_STORAGE_DIR", "videos")
+        v_dir = normalize_path(os.getenv("VIDEO_STORAGE_DIR"), "videos")
         candidates = [
             os.path.join(v_dir, f"{args.job_id}_words.json"),
             os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "videos", f"{args.job_id}_words.json"),

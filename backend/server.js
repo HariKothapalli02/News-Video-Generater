@@ -16,9 +16,18 @@ connectDB();
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+function getResolvedDir(envVar, defaultName) {
+  const val = process.env[envVar];
+  const fallback = path.join(__dirname, "..", defaultName);
+  if (!val) return fallback;
+  if (process.platform !== "win32" && /^[a-zA-Z]:/.test(val)) {
+    return fallback;
+  }
+  return path.resolve(val);
+}
 
-const videoDir = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "videos");
-const thumbDir = process.env.THUMBNAIL_STORAGE_DIR || path.join(__dirname, "thumbnails");
+const videoDir = getResolvedDir("VIDEO_STORAGE_DIR", "videos");
+const thumbDir = getResolvedDir("THUMBNAIL_STORAGE_DIR", "thumbnails");
 
 if (!fs.existsSync(path.join(videoDir, "shorts"))) {
   fs.mkdirSync(path.join(videoDir, "shorts"), { recursive: true });

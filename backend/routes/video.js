@@ -10,6 +10,22 @@ const Video = require("../models/Video");
 const videoQueue = require("../services/videoQueue");
 const auth = require("../middleware/auth");
 
+const getVideoStorageDir = () => {
+  const envVal = process.env.VIDEO_STORAGE_DIR;
+  const fallback = path.join(__dirname, "..", "..", "videos");
+  if (!envVal) return fallback;
+  if (process.platform !== "win32" && /^[a-zA-Z]:/.test(envVal)) return fallback;
+  return path.resolve(envVal);
+};
+
+const getThumbStorageDir = () => {
+  const envVal = process.env.THUMBNAIL_STORAGE_DIR;
+  const fallback = path.join(__dirname, "..", "..", "thumbnails");
+  if (!envVal) return fallback;
+  if (process.platform !== "win32" && /^[a-zA-Z]:/.test(envVal)) return fallback;
+  return path.resolve(envVal);
+};
+
 // Helper to format uptime
 const formatUptime = (seconds) => {
   const days = Math.floor(seconds / (3600 * 24));
@@ -68,11 +84,8 @@ router.post("/generate", auth, async (req, res) => {
     return res.status(400).json({ msg: "Title is required." });
   }
 
-  if (videoQueue.isBusy()) {
-    return res.status(400).json({ msg: "Another video generation is currently in progress. Please wait." });
-  }
-
   try {
+    const isWorkerBusy = videoQueue.isBusy();
     const newVideo = new Video({
       title,
       subject: subject || "news",
@@ -80,7 +93,9 @@ router.post("/generate", auth, async (req, res) => {
       status: "Pending",
       progress: 0,
       script: "",
-      logs: "Enqueued job. Preparing setup...",
+      logs: isWorkerBusy
+        ? "Worker currently processing another video. Enqueued job in queue..."
+        : "Enqueued job. Preparing setup...",
       videoType: videoType || "tech_news",
       customScript: customScript || "",
       useMusic: useMusic !== undefined ? useMusic : true,
@@ -94,11 +109,15 @@ router.post("/generate", auth, async (req, res) => {
     await newVideo.save();
 
     const io = req.app.get("io");
-    videoQueue.startJob(newVideo, io).catch((err) => {
+    const jobResult = await videoQueue.startJob(newVideo, io).catch((err) => {
       console.error("Error running queue job:", err);
     });
 
-    return res.status(201).json(newVideo);
+    return res.status(201).json({
+      ...newVideo.toObject(),
+      queued: !!jobResult?.queued,
+      queuePosition: jobResult?.position || 1
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ msg: "Server error occurred while starting generation." });
@@ -205,7 +224,7 @@ router.get("/download/:id", async (req, res) => {
       return res.status(404).send("Video record not found.");
     }
 
-    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "videos");
+    const videoStorage = getVideoStorageDir();
     const filePath = path.resolve(path.join(videoStorage, `${req.params.id}.mp4`));
 
     if (!fs.existsSync(filePath)) {
@@ -233,13 +252,13 @@ router.delete("/video/:id", auth, async (req, res) => {
       return res.status(400).json({ msg: "Cannot delete an active, rendering video generation. Stop it first." });
     }
 
-    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "videos");
+    const videoStorage = getVideoStorageDir();
     const videoFilePath = path.join(videoStorage, `${req.params.id}.mp4`);
     if (fs.existsSync(videoFilePath)) {
       fs.unlinkSync(videoFilePath);
     }
 
-    const thumbStorage = process.env.THUMBNAIL_STORAGE_DIR || path.join(__dirname, "..", "thumbnails");
+    const thumbStorage = getThumbStorageDir();
     const thumbFilePath = path.join(thumbStorage, `${req.params.id}.png`);
     if (fs.existsSync(thumbFilePath)) {
       fs.unlinkSync(thumbFilePath);
@@ -392,8 +411,8 @@ const cleanDirectoryRecursive = (dirPath, extFilter = null, preserveNames = ["in
 // @access  Private
 router.post("/clear-storage", auth, async (req, res) => {
   try {
-    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "..", "videos");
-    const thumbStorage = process.env.THUMBNAIL_STORAGE_DIR || path.join(__dirname, "..", "..", "thumbnails");
+    const videoStorage = getVideoStorageDir();
+    const thumbStorage = getThumbStorageDir();
     const scratchStorage = path.join(__dirname, "..", "..", "python-service", "scratch");
 
     const scratchRes = cleanDirectoryRecursive(scratchStorage);
@@ -423,8 +442,8 @@ router.post("/clear-storage", auth, async (req, res) => {
 router.post("/storage/cleanup", auth, async (req, res) => {
   try {
     const { target } = req.body; // 'scratch' | 'all_mp4' | 'everything'
-    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "..", "videos");
-    const thumbStorage = process.env.THUMBNAIL_STORAGE_DIR || path.join(__dirname, "..", "..", "thumbnails");
+    const videoStorage = getVideoStorageDir();
+    const thumbStorage = getThumbStorageDir();
     const scratchStorage = path.join(__dirname, "..", "..", "python-service", "scratch");
 
     let totalFreed = 0;
@@ -476,7 +495,7 @@ router.delete("/video/:id/media", auth, async (req, res) => {
       return res.status(404).json({ msg: "Video record not found." });
     }
 
-    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "..", "videos");
+    const videoStorage = getVideoStorageDir();
     let freedBytes = 0;
     let deletedFiles = 0;
 
@@ -736,7 +755,7 @@ router.post("/video/:id/generate-shorts", auth, async (req, res) => {
       return res.status(400).json({ msg: "Video must be in 'Completed' status to extract shorts." });
     }
 
-    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "videos");
+    const videoStorage = getVideoStorageDir();
     const videoFilePath = path.join(videoStorage, `${video._id}.mp4`);
 
     if (!fs.existsSync(videoFilePath)) {
@@ -944,7 +963,7 @@ router.get("/download/:id/short/:shortIndex", async (req, res) => {
     }
 
     const shortIdx = parseInt(req.params.shortIndex, 10);
-    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "videos");
+    const videoStorage = getVideoStorageDir();
     const filePath = path.resolve(path.join(videoStorage, "shorts", `${req.params.id}_short_${shortIdx}.mp4`));
 
     if (!fs.existsSync(filePath)) {
@@ -963,7 +982,7 @@ router.get("/download/:id/short/:shortIndex", async (req, res) => {
 // @access  Public
 router.get("/download/:id/thumbnail", async (req, res) => {
   try {
-    const thumbStorage = process.env.THUMBNAIL_STORAGE_DIR || path.join(__dirname, "..", "thumbnails");
+    const thumbStorage = getThumbStorageDir();
     const filePath = path.resolve(path.join(thumbStorage, `${req.params.id}.png`));
 
     if (!fs.existsSync(filePath)) {
@@ -982,7 +1001,7 @@ router.get("/download/:id/thumbnail", async (req, res) => {
 router.get("/download/:id/short/:shortIndex/thumbnail", async (req, res) => {
   try {
     const shortIdx = parseInt(req.params.shortIndex, 10);
-    const thumbStorage = process.env.THUMBNAIL_STORAGE_DIR || path.join(__dirname, "..", "thumbnails");
+    const thumbStorage = getThumbStorageDir();
     const filePath = path.resolve(path.join(thumbStorage, "shorts", `${req.params.id}_short_${shortIdx}.png`));
 
     if (!fs.existsSync(filePath)) {
@@ -1072,7 +1091,7 @@ router.post("/video/:id/post", auth, async (req, res) => {
       return res.status(409).json({ msg: "This video is currently being uploaded to YouTube. Please wait." });
     }
 
-    const videoStorage = process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "videos");
+    const videoStorage = getVideoStorageDir();
     const filePath = path.resolve(path.join(videoStorage, `${video._id}.mp4`));
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ msg: "Physical video file not found on disk." });

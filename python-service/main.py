@@ -22,9 +22,30 @@ import movie
 import shorts
 import thumbnail
 
-VIDEO_DIR = os.getenv("VIDEO_STORAGE_DIR", "../videos")
-THUMBNAIL_DIR = os.getenv("THUMBNAIL_STORAGE_DIR", "../thumbnails")
-LOG_DIR = os.getenv("LOG_STORAGE_DIR", "../logs")
+
+def normalize_path(path_str, default_fallback="videos"):
+    """
+    Safely resolves directory paths across Windows and Linux.
+    Prevents invalid Windows drive paths (e.g. 'D:/...') from causing protocol errors in FFmpeg on Linux.
+    """
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if not path_str:
+        return os.path.abspath(os.path.join(base_dir, default_fallback))
+    path_str = str(path_str).strip()
+    if os.name != "nt" and re.match(r"^[a-zA-Z]:", path_str):
+        for candidate in ["videos", "thumbnails", "logs"]:
+            if candidate in path_str.lower():
+                return os.path.abspath(os.path.join(base_dir, candidate))
+        rel = re.sub(r"^[a-zA-Z]:[\\/]*", "", path_str)
+        return os.path.abspath(os.path.join(base_dir, rel))
+    if not os.path.isabs(path_str):
+        return os.path.abspath(os.path.join(base_dir, path_str))
+    return os.path.abspath(path_str)
+
+
+VIDEO_DIR = normalize_path(os.getenv("VIDEO_STORAGE_DIR"), "videos")
+THUMBNAIL_DIR = normalize_path(os.getenv("THUMBNAIL_STORAGE_DIR"), "thumbnails")
+LOG_DIR = normalize_path(os.getenv("LOG_STORAGE_DIR"), "logs")
 
 
 def save_checkpoint(checkpoint_file, data):
@@ -304,6 +325,14 @@ def main():
             intro_path=intro_path,
             scratch_dir=scratch_dir
         )
+
+        # Reclaim disk space immediately by purging raw downloaded clips
+        if os.path.exists(clips_dir):
+            print(f"[LOG] Deleting downloaded raw clips from {clips_dir} to free disk space...")
+            try:
+                shutil.rmtree(clips_dir)
+            except Exception as e:
+                print(f"[LOG] Notice cleaning clips: {e}")
 
         intro_offset = movie.get_video_duration(intro_path) if (intro_path and os.path.exists(intro_path)) else 0.0
 

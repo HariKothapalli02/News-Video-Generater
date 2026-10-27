@@ -26,7 +26,11 @@ FINAL_WIDTH = 1920
 FINAL_HEIGHT = 1080
 FPS = 30
 
-DEFAULT_MUSIC_URL = "https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3"
+DEFAULT_MUSIC_URLS = [
+    "https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3",
+    "https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3",
+    "https://freepd.com/music/Electronic%20News.mp3"
+]
 
 
 def get_ffmpeg_exe():
@@ -46,17 +50,26 @@ def get_ffmpeg_exe():
 
 
 def download_default_music(music_path):
-    print(f"Background music missing. Downloading default track from {DEFAULT_MUSIC_URL} ...")
-    try:
-        response = requests.get(DEFAULT_MUSIC_URL, stream=True, timeout=30)
-        response.raise_for_status()
-        with open(music_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=1024 * 64):
-                if chunk:
-                    f.write(chunk)
-        print("Default background music downloaded successfully.")
-    except Exception as e:
-        print(f"Failed to download background music: {e}. Video will render without background music.")
+    print("Background music missing. Downloading default royalty-free track...")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "*/*"
+    }
+    for url in DEFAULT_MUSIC_URLS:
+        try:
+            response = requests.get(url, headers=headers, stream=True, timeout=15)
+            if response.status_code == 200:
+                with open(music_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=1024 * 64):
+                        if chunk:
+                            f.write(chunk)
+                print("Default background music downloaded successfully.")
+                return True
+        except Exception as e:
+            print(f"Notice: Background music download attempt failed for {url}: {e}")
+
+    print("Video will render without background music.")
+    return False
 
 
 def clean_word(word):
@@ -837,6 +850,23 @@ def compile_video(
         rendered_path = render_single_scene_to_file(paths, duration, scene_output)
         rendered_scene_files.append(rendered_path)
         print(f"[LOG] Scene {idx + 1} rendered to disk successfully.")
+
+    # Reclaim disk space immediately by purging raw downloaded clips
+    if os.path.exists(clips_dir):
+        print(f"[LOG] News scenes rendered to disk. Deleting downloaded raw clips from {clips_dir} to free disk space...")
+        try:
+            for fname in os.listdir(clips_dir):
+                fpath = os.path.join(clips_dir, fname)
+                try:
+                    if os.path.isfile(fpath) or os.path.islink(fpath):
+                        os.remove(fpath)
+                    elif os.path.isdir(fpath):
+                        shutil.rmtree(fpath)
+                except Exception:
+                    pass
+            print("[LOG] Downloaded raw clips deleted successfully.")
+        except Exception as e:
+            print(f"[LOG] Notice cleaning clips: {e}")
 
     # 2. Concatenate News Scenes (pure news footage)
     print("\n[LOG] Joining news scenes into continuous timeline...")
