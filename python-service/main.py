@@ -3,6 +3,7 @@ os.environ["GRPC_VERBOSITY"] = "NONE"
 os.environ["GRPC_GOOG_LOG_SEVERITY_THRESHOLD"] = "3"
 
 import sys
+import re
 import json
 import argparse
 import wave
