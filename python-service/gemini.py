@@ -142,12 +142,21 @@ def execute_gemini_with_retry(prompt, model_name=None, max_retries=5):
     print(f"[LOG] Gemini Load-Balancer: {num_keys} key(s) in pool ({len(ready_keys)} active). Starting with Key #{first_key_num} (Model: {models_to_try[0]})...")
 
     last_error = None
+    dead_keys = set()
 
     for attempt_round in range(1, max_retries + 1):
         all_keys_quota_limited = True
         quota_wait_sec = 60
 
-        for key_idx, current_key in enumerate(ordered_keys):
+        # Filter out keys confirmed invalid
+        active_keys = [k for k in ordered_keys if k not in dead_keys]
+        if not active_keys:
+            raise ValueError(
+                f"All {num_keys} Gemini API key(s) in your .env are invalid or revoked! "
+                "Please generate a fresh API key at https://aistudio.google.com/ and update GEMINI_API_KEY in .env."
+            )
+
+        for key_idx, current_key in enumerate(active_keys):
             genai.configure(api_key=current_key)
             masked_key = current_key[:6] + "..." + current_key[-4:] if len(current_key) > 10 else "***"
             key_num = keys.index(current_key) + 1
@@ -156,7 +165,7 @@ def execute_gemini_with_retry(prompt, model_name=None, max_retries=5):
                 try:
                     print(f"[LOG] Querying Gemini model '{active_model}' (Key #{key_num}: {masked_key}, round {attempt_round}/{max_retries})...")
                     model = genai.GenerativeModel(active_model)
-                    response = model.generate_content(prompt)
+                    response = model.generate_content(prompt, request_options={"timeout": 60})
                     if response and response.text:
                         # Clear cooldown on success
                         if current_key in cooldowns:
@@ -169,8 +178,15 @@ def execute_gemini_with_retry(prompt, model_name=None, max_retries=5):
                     err_str = str(e)
                     last_error = e
 
+                    is_invalid_key = "API_KEY_INVALID" in err_str or "API key not valid" in err_str or "API_KEY_SERVICE_BLOCKED" in err_str
                     is_rate_limit = "429" in err_str or "ResourceExhausted" in err_str or "quota" in err_str.lower()
                     is_daily_limit = ("GenerateRequestsPerDay" in err_str) or ("free_tier_requests" in err_str) or ("limit: 20" in err_str)
+
+                    if is_invalid_key:
+                        dead_keys.add(current_key)
+                        all_keys_quota_limited = False
+                        print(f"[LOG] ❌ Gemini Key #{key_num} ({masked_key}) is INVALID or REVOKED. Skipping key permanently.")
+                        break
 
                     if is_rate_limit:
                         print(f"[LOG] Gemini 429 / Quota Limit on Key #{key_num} ({masked_key}) with model '{active_model}'.")
@@ -197,22 +213,28 @@ def execute_gemini_with_retry(prompt, model_name=None, max_retries=5):
                         _save_rr_state(state)
 
                         # Fail over to next key
-                        if key_idx < len(ordered_keys) - 1:
-                            next_key = ordered_keys[key_idx + 1]
+                        if key_idx < len(active_keys) - 1:
+                            next_key = active_keys[key_idx + 1]
                             next_num = keys.index(next_key) + 1
                             print(f"[LOG] Instant round-robin failover -> switching to Key #{next_num} immediately.")
                         break
                     else:
-                        # Non-rate-limit error (e.g. temporary network error)
+                        # Non-rate-limit error (e.g. temporary network error / timeout)
                         all_keys_quota_limited = False
                         print(f"[LOG] Gemini request on Key #{key_num} failed ({active_model}): {e}")
                         break
 
         # If all keys were exhausted in this round, pause before retrying the pool
         if attempt_round < max_retries:
+            active_keys = [k for k in ordered_keys if k not in dead_keys]
+            if not active_keys:
+                raise ValueError(
+                    f"All {num_keys} Gemini API key(s) in your .env are invalid or revoked! "
+                    "Please generate a fresh API key at https://aistudio.google.com/ and update GEMINI_API_KEY in .env."
+                )
             if all_keys_quota_limited:
                 wait_time = min(quota_wait_sec, 60)
-                print(f"[LOG] All {num_keys} Gemini keys reached quota limit. Pausing {wait_time}s for refresh...")
+                print(f"[LOG] All active Gemini keys reached quota limit. Pausing {wait_time}s for refresh...")
                 time.sleep(wait_time)
             else:
                 time.sleep(2 * attempt_round)
