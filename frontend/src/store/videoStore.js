@@ -273,6 +273,40 @@ export const useVideoStore = create((set, get) => {
       }
     },
 
+    fetchSettings: async () => {
+      try {
+        const res = await axios.get(`${API_URL}/settings`, get().getHeaders());
+        return res.data;
+      } catch (err) {
+        const msg = err.response?.data?.msg || "Failed to fetch settings.";
+        set({ error: msg });
+        throw new Error(msg);
+      }
+    },
+
+    updateSettings: async (updates) => {
+      try {
+        const res = await axios.post(`${API_URL}/settings`, { updates }, get().getHeaders());
+        return res.data;
+      } catch (err) {
+        const msg = err.response?.data?.msg || "Failed to update settings.";
+        set({ error: msg });
+        throw new Error(msg);
+      }
+    },
+
+    testPexelsKey: async (apiKey) => {
+      try {
+        const res = await axios.post(`${API_URL}/settings/test-pexels`, { apiKey }, get().getHeaders());
+        return res.data;
+      } catch (err) {
+        return {
+          valid: false,
+          msg: err.response?.data?.msg || err.message
+        };
+      }
+    },
+
     clearActiveJob: () => set({ activeJob: null }),
     clearError: () => set({ error: null })
   };

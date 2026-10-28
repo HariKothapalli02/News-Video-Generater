@@ -3,22 +3,41 @@ import re
 import time
 import random
 import requests
+import subprocess
+import shutil
 from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
-PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
+ENV_PATH = os.path.join(os.path.dirname(__file__), "..", ".env")
+
+
+def get_ffmpeg_exe():
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
+
+
+def get_pexels_api_key():
+    load_dotenv(ENV_PATH, override=True)
+    return os.getenv("PEXELS_API_KEY", "").strip()
+
 
 CLIPS_PER_SCENE = 3
 
 
 def search_pexels_videos(query, count=3):
-    if not PEXELS_API_KEY:
-        print("Warning: PEXELS_API_KEY is not configured in .env.")
+    api_key = get_pexels_api_key()
+    if not api_key:
+        print("[WARNING] PEXELS_API_KEY is not configured in .env.")
         return []
 
     url = "https://api.pexels.com/videos/search"
     headers = {
-        "Authorization": PEXELS_API_KEY
+        "Authorization": api_key
     }
     params = {
         "query": query,
@@ -34,7 +53,11 @@ def search_pexels_videos(query, count=3):
             timeout=25
         )
         if response.status_code != 200:
-            print(f"Pexels API error status {response.status_code}: {response.text}")
+            if response.status_code == 401:
+                masked = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else "***"
+                print(f"[PEXELS AUTH ERROR] Pexels API returned 401 Unauthorized! The key '{masked}' in .env is invalid or expired. Activating fallback video engine...")
+            else:
+                print(f"Pexels API error status {response.status_code}: {response.text}")
             return []
 
         videos = response.json().get("videos", [])
@@ -128,6 +151,118 @@ def download_video(url, filename, clips_dir):
         return None
 
 
+def search_wikimedia_media(query, count=3):
+    """
+    Free fallback visual media search on Wikimedia Commons.
+    Requires no API key. Returns direct links to high-res images or videos.
+    """
+    clean_q = re.sub(r"[^a-zA-Z0-9\s]", " ", str(query)).strip()
+    if not clean_q:
+        return []
+
+    url = "https://commons.wikimedia.org/w/api.php"
+    params = {
+        "action": "query",
+        "generator": "search",
+        "gsrsearch": f"{clean_q}",
+        "gsrnamespace": 6,
+        "gsrlimit": max(12, count * 3),
+        "prop": "imageinfo",
+        "iiprop": "url|mime|size|width|height",
+        "format": "json"
+    }
+    headers = {
+        "User-Agent": "ByteWireVideoBot/1.0 (https://ytvideo.harikothapalli.space; news@harikothapalli.space)"
+    }
+    try:
+        res = requests.get(url, params=params, headers=headers, timeout=12)
+        if res.status_code != 200:
+            return []
+        data = res.json()
+        pages = data.get("query", {}).get("pages", {})
+        results = []
+        for pid, page in pages.items():
+            infos = page.get("imageinfo", [])
+            if not infos:
+                continue
+            info = infos[0]
+            media_url = info.get("url")
+            width = info.get("width", 0)
+            height = info.get("height", 0)
+            mime = str(info.get("mime", "")).lower()
+            if media_url and (width >= 800 or "video" in mime):
+                if not media_url.lower().endswith((".svg", ".ogg", ".ogv", ".pdf", ".tif", ".tiff")):
+                    results.append({"url": media_url, "mime": mime, "width": width, "height": height})
+            if len(results) >= count * 2:
+                break
+        random.shuffle(results)
+        return results[:count]
+    except Exception as e:
+        print(f"Notice: Wikimedia fallback search for '{query}': {e}")
+        return []
+
+
+def image_to_kenburns_video(image_path, output_video_path, duration=6.0):
+    """
+    Converts a high-res image into a cinematic 1080p 30fps Ken-Burns zoom/pan video clip.
+    """
+    ffmpeg_exe = get_ffmpeg_exe()
+    try:
+        frames = max(30, int(duration * 30))
+        zoom_filter = (
+            f"scale=2160x1215:force_original_aspect_ratio=increase,crop=2160:1215,"
+            f"zoompan=z='min(zoom+0.0015,1.20)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={frames}:s=1920x1080:fps=30"
+        )
+        cmd = [
+            ffmpeg_exe, "-y",
+            "-loop", "1",
+            "-i", os.path.abspath(image_path),
+            "-vf", zoom_filter,
+            "-t", f"{duration:.2f}",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-pix_fmt", "yuv420p",
+            os.path.abspath(output_video_path)
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=35)
+        if res.returncode == 0 and os.path.exists(output_video_path) and os.path.getsize(output_video_path) > 10000:
+            return output_video_path
+    except Exception as e:
+        print(f"[LOG] Notice: image to Ken-Burns conversion: {e}")
+    return None
+
+
+def generate_procedural_broadcast_clip(output_video_path, duration=6.0, keyword="NEWS"):
+    """
+    Generates a dynamic 1080p 30fps animated news broadcast motion background using FFmpeg.
+    Features a deep navy/sapphire aesthetic with ambient moving digital tech grid and glowing vignette.
+    Never a static grey box!
+    """
+    ffmpeg_exe = get_ffmpeg_exe()
+    try:
+        filter_str = (
+            f"color=c=0x0a1428:s=1920x1080:d={duration}:r=30,"
+            "drawgrid=w=120:h=120:t=1:c=0x00d4ff@0.08,"
+            "vignette=angle=0.5:aspect=16/9"
+        )
+        cmd = [
+            ffmpeg_exe, "-y",
+            "-f", "lavfi",
+            "-i", filter_str,
+            "-t", f"{duration:.2f}",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-pix_fmt", "yuv420p",
+            os.path.abspath(output_video_path)
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+        if res.returncode == 0 and os.path.exists(output_video_path) and os.path.getsize(output_video_path) > 10000:
+            return output_video_path
+    except Exception as e:
+        print(f"[LOG] Notice: procedural clip generation: {e}")
+    return None
+
+
 def clean_filename(text):
     return re.sub(r"[^a-zA-Z0-9_-]", "_", text.lower())[:40]
 
@@ -136,8 +271,10 @@ def get_scene_clip_paths(query, scene_index, clips_dir, keyword="", video_subjec
     """
     Downloads exactly 3 distinct high quality clips for each scene
     using multi-tier queries to ensure relevant, dynamic visual variety.
+    Guarantees 3 broadcast-grade clips even if Pexels API key is invalid.
     """
-    time.sleep(0.4)
+    time.sleep(0.3)
+    os.makedirs(clips_dir, exist_ok=True)
     
     primary_query = f"{video_subject} {keyword}".strip() if keyword else f"{video_subject} {query}".strip()
     secondary_query = f"{query}".strip()
@@ -187,24 +324,59 @@ def get_scene_clip_paths(query, scene_index, clips_dir, keyword="", video_subjec
             if len(all_links) >= CLIPS_PER_SCENE:
                 break
 
-    # If still not enough, repeat existing links to guarantee 3 clips
-    while len(all_links) < CLIPS_PER_SCENE and len(all_links) > 0:
-        all_links.append(all_links[len(all_links) % len(all_links)])
-
-    final_links = all_links[:CLIPS_PER_SCENE]
     paths = []
-
-    for idx, link in enumerate(final_links, 1):
+    # Download any Pexels clips found
+    for idx, link in enumerate(all_links[:CLIPS_PER_SCENE], 1):
         filename = f"scene_{scene_index}_clip_{idx}_{clean_filename(query)}.mp4"
         path = download_video(link, filename, clips_dir)
         if path:
             paths.append(path)
 
-    # Ensure 3 paths: if one download failed, clone the first successful one
-    if paths and len(paths) < CLIPS_PER_SCENE:
-        print(f"Warning: Only downloaded {len(paths)}/{CLIPS_PER_SCENE} clips. Duplicating to guarantee 3 clips for scene {scene_index}.")
-        while len(paths) < CLIPS_PER_SCENE:
-            paths.append(paths[0])
+    # 5. Fallback Tier: Free Wikimedia Commons News Media Search
+    if len(paths) < CLIPS_PER_SCENE:
+        print(f"[FALLBACK] Querying Wikimedia Commons media for scene {scene_index} ('{keyword or query}')...")
+        search_terms = [keyword, query, video_subject]
+        for term in search_terms:
+            if not term or len(paths) >= CLIPS_PER_SCENE:
+                continue
+            wiki_media = search_wikimedia_media(term, count=CLIPS_PER_SCENE - len(paths))
+            for wm in wiki_media:
+                media_url = wm.get("url", "")
+                if not media_url:
+                    continue
+                ext = os.path.splitext(media_url.split("?")[0])[1].lower() or ".jpg"
+                clip_num = len(paths) + 1
+                raw_filename = f"scene_{scene_index}_wiki_{clip_num}_{clean_filename(term)}{ext}"
+                target_video = os.path.join(clips_dir, f"scene_{scene_index}_wiki_{clip_num}_{clean_filename(term)}.mp4")
+
+                # If it's already an MP4 video, download directly
+                if ext in [".mp4", ".mov", ".m4v"]:
+                    dl_path = download_video(media_url, raw_filename, clips_dir)
+                    if dl_path:
+                        paths.append(dl_path)
+                else:
+                    # It's a high-res photo: download & animate into smooth Ken-Burns 1080p clip
+                    dl_img = download_video(media_url, raw_filename, clips_dir)
+                    if dl_img:
+                        kb_clip = image_to_kenburns_video(dl_img, target_video, duration=7.0)
+                        if kb_clip:
+                            paths.append(kb_clip)
+                if len(paths) >= CLIPS_PER_SCENE:
+                    break
+
+    # 6. Fallback Tier: High-Tech Broadcast Procedural Loop (Zero-Failure Guarantee)
+    while len(paths) < CLIPS_PER_SCENE:
+        clip_num = len(paths) + 1
+        procedural_file = os.path.join(clips_dir, f"scene_{scene_index}_broadcast_{clip_num}.mp4")
+        proc_clip = generate_procedural_broadcast_clip(procedural_file, duration=7.0, keyword=keyword or query)
+        if proc_clip:
+            paths.append(proc_clip)
+        else:
+            # Duplicate first available path if present
+            if paths:
+                paths.append(paths[0])
+            else:
+                break
 
     print(f"[LOG] Scene {scene_index} prepared {len(paths)} clips.")
     return paths

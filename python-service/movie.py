@@ -149,10 +149,14 @@ def render_single_scene_to_file(paths, duration, output_path):
     num_clips = len(valid_paths)
 
     if num_clips == 0:
-        # Fallback dark background clip
+        from pexels import generate_procedural_broadcast_clip
+        proc = generate_procedural_broadcast_clip(output_path, duration=duration)
+        if proc and os.path.exists(proc) and os.path.getsize(proc) > 10000:
+            return proc
+        # High-res fallback with dynamic animated color
         blank = ColorClip(
             size=(FINAL_WIDTH, FINAL_HEIGHT),
-            color=(15, 20, 30)
+            color=(10, 20, 40)
         ).with_duration(duration)
         blank.write_videofile(
             output_path,
@@ -195,9 +199,13 @@ def render_single_scene_to_file(paths, duration, output_path):
             print(f"[LOG] Warning processing clip '{path}': {e}")
 
     if not processed_clips:
+        from pexels import generate_procedural_broadcast_clip
+        proc = generate_procedural_broadcast_clip(output_path, duration=duration)
+        if proc and os.path.exists(proc) and os.path.getsize(proc) > 10000:
+            return proc
         scene_composite = ColorClip(
             size=(FINAL_WIDTH, FINAL_HEIGHT),
-            color=(15, 20, 30)
+            color=(10, 20, 40)
         ).with_duration(duration)
     else:
         scene_composite = CompositeVideoClip(

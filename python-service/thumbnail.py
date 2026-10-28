@@ -7,8 +7,12 @@ import requests
 from dotenv import load_dotenv
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageOps
 
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
-PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
+ENV_PATH = os.path.join(os.path.dirname(__file__), "..", ".env")
+
+
+def get_pexels_api_key():
+    load_dotenv(ENV_PATH, override=True)
+    return os.getenv("PEXELS_API_KEY", "").strip()
 
 THUMB_WIDTH = 1280
 THUMB_HEIGHT = 720
@@ -48,12 +52,13 @@ def fetch_pexels_photo(query):
     Searches Pexels Photo API for high-resolution landscape images matching the query.
     Returns a PIL Image object or None.
     """
-    if not PEXELS_API_KEY:
+    api_key = get_pexels_api_key()
+    if not api_key:
         print("[Thumbnail] PEXELS_API_KEY not configured. Skipping Pexels photo search.")
         return None
 
     url = "https://api.pexels.com/v1/search"
-    headers = {"Authorization": PEXELS_API_KEY}
+    headers = {"Authorization": api_key}
     params = {
         "query": query,
         "orientation": "landscape",
@@ -91,6 +96,48 @@ def fetch_pexels_photo(query):
     except Exception as e:
         print(f"[Thumbnail] Error fetching Pexels photo: {e}")
 
+    return None
+
+
+def fetch_wikimedia_photo(query):
+    """
+    Fetches a high-resolution news photo from Wikimedia Commons (free, no API key required).
+    """
+    clean_q = re.sub(r"[^a-zA-Z0-9\s]", " ", str(query)).strip()
+    if not clean_q:
+        return None
+    url = "https://commons.wikimedia.org/w/api.php"
+    params = {
+        "action": "query",
+        "generator": "search",
+        "gsrsearch": f"{clean_q}",
+        "gsrnamespace": 6,
+        "gsrlimit": 8,
+        "prop": "imageinfo",
+        "iiprop": "url|mime|width|height",
+        "format": "json"
+    }
+    headers = {
+        "User-Agent": "ByteWireVideoBot/1.0 (https://ytvideo.harikothapalli.space)"
+    }
+    try:
+        res = requests.get(url, params=params, headers=headers, timeout=12)
+        if res.status_code == 200:
+            data = res.json()
+            pages = data.get("query", {}).get("pages", {})
+            for pid, page in pages.items():
+                infos = page.get("imageinfo", [])
+                if not infos:
+                    continue
+                info = infos[0]
+                media_url = info.get("url")
+                width = info.get("width", 0)
+                if media_url and width >= 1000 and media_url.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                    img_res = requests.get(media_url, timeout=20)
+                    if img_res.status_code == 200:
+                        return Image.open(io.BytesIO(img_res.content)).convert("RGB")
+    except Exception as e:
+        print(f"[Thumbnail] Notice: Wikimedia image search: {e}")
     return None
 
 
@@ -188,7 +235,7 @@ def create_youtube_thumbnail(
     if not primary_query:
         primary_query = f"{subject} technology breaking news"
 
-    # 2. Gather image (Pexels -> video frame -> solid backdrop)
+    # 2. Gather image (Pexels -> Wikimedia Commons -> video frame -> solid backdrop)
     found_img = None
     if primary_query:
         found_img = fetch_pexels_photo(primary_query)
@@ -196,6 +243,14 @@ def create_youtube_thumbnail(
     # Fallback to general subject query if specific story query yielded nothing
     if not found_img and subject:
         found_img = fetch_pexels_photo(f"{subject} breaking news")
+
+    # Fallback to Wikimedia Commons (free, no API key required)
+    if not found_img and primary_query:
+        print(f"[Thumbnail] Querying Wikimedia Commons photo for '{primary_query}'...")
+        found_img = fetch_wikimedia_photo(primary_query)
+
+    if not found_img and subject:
+        found_img = fetch_wikimedia_photo(f"{subject} news")
 
     if not found_img and video_path:
         print("[Thumbnail] Falling back to extracting high-res frame from video...")

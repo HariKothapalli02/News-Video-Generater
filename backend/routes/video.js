@@ -1248,5 +1248,162 @@ router.post("/video/:id/short/:shortIndex/post", auth, async (req, res) => {
   }
 });
 
+// @route   GET /api/settings
+// @desc    Retrieve system environment settings and API keys
+// @access  Private
+router.get("/settings", auth, (req, res) => {
+  const envPath = path.join(__dirname, "..", "..", ".env");
+  let envFileExists = fs.existsSync(envPath);
+
+  const configs = [
+    {
+      key: "GEMINI_API_KEY",
+      label: "Gemini API Key",
+      value: process.env.GEMINI_API_KEY || "",
+      secret: true,
+      category: "API Keys"
+    },
+    {
+      key: "GEMINI_MODEL",
+      label: "Gemini Model",
+      value: process.env.GEMINI_MODEL || "gemini-3.8-flash",
+      secret: false,
+      category: "AI Config"
+    },
+    {
+      key: "PEXELS_API_KEY",
+      label: "Pexels API Key",
+      value: process.env.PEXELS_API_KEY || "",
+      secret: true,
+      category: "API Keys"
+    },
+    {
+      key: "MONGODB_URI",
+      label: "MongoDB Connection URI",
+      value: process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/bytewire",
+      secret: false,
+      category: "Database"
+    },
+    {
+      key: "VIDEO_STORAGE_DIR",
+      label: "Videos Storage Directory",
+      value: process.env.VIDEO_STORAGE_DIR || path.join(__dirname, "..", "..", "videos"),
+      secret: false,
+      category: "Storage Paths"
+    },
+    {
+      key: "THUMBNAIL_STORAGE_DIR",
+      label: "Thumbnails Storage Directory",
+      value: process.env.THUMBNAIL_STORAGE_DIR || path.join(__dirname, "..", "..", "thumbnails"),
+      secret: false,
+      category: "Storage Paths"
+    },
+    {
+      key: "N8N_WEBHOOK_URL",
+      label: "n8n Webhook URL",
+      value: process.env.N8N_WEBHOOK_URL || "",
+      secret: false,
+      category: "Publishing"
+    }
+  ];
+
+  res.json({
+    envFileExists,
+    envPath,
+    configs
+  });
+});
+
+// @route   POST /api/settings/test-pexels
+// @desc    Verify Pexels API key validity against Pexels API
+// @access  Private
+router.post("/settings/test-pexels", auth, async (req, res) => {
+  const keyToTest = (req.body.apiKey || process.env.PEXELS_API_KEY || "").trim();
+  if (!keyToTest) {
+    return res.status(400).json({ valid: false, msg: "Pexels API Key is empty." });
+  }
+
+  const options = {
+    hostname: "api.pexels.com",
+    path: "/videos/search?query=news&per_page=1",
+    method: "GET",
+    headers: {
+      "Authorization": keyToTest,
+      "User-Agent": "ByteWireChecker/1.0"
+    }
+  };
+
+  const reqTest = https.request(options, (resp) => {
+    let data = "";
+    resp.on("data", (chunk) => { data += chunk; });
+    resp.on("end", () => {
+      if (resp.statusCode === 200) {
+        return res.json({
+          valid: true,
+          statusCode: 200,
+          msg: "Pexels API Key is 100% valid and verified active!"
+        });
+      } else {
+        let errMsg = `Pexels returned status ${resp.statusCode}`;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.message) errMsg = `${errMsg}: ${parsed.message}`;
+        } catch (_) {}
+        return res.json({
+          valid: false,
+          statusCode: resp.statusCode,
+          msg: errMsg
+        });
+      }
+    });
+  });
+
+  reqTest.on("error", (e) => {
+    return res.status(500).json({ valid: false, msg: `Network test failed: ${e.message}` });
+  });
+  reqTest.setTimeout(10000, () => {
+    reqTest.destroy();
+    return res.status(504).json({ valid: false, msg: "Connection to Pexels timed out." });
+  });
+  reqTest.end();
+});
+
+// @route   POST /api/settings
+// @desc    Save updated environment settings to .env file
+// @access  Private
+router.post("/settings", auth, (req, res) => {
+  try {
+    const { updates } = req.body;
+    if (!updates || typeof updates !== "object") {
+      return res.status(400).json({ msg: "Updates object required." });
+    }
+
+    const envPath = path.join(__dirname, "..", "..", ".env");
+    let currentContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf-8") : "";
+
+    for (const [key, value] of Object.entries(updates)) {
+      if (!key) continue;
+      const cleanVal = String(value || "").trim();
+      process.env[key] = cleanVal;
+
+      const regex = new RegExp(`^${key}=.*$`, "m");
+      if (regex.test(currentContent)) {
+        currentContent = currentContent.replace(regex, `${key}=${cleanVal}`);
+      } else {
+        currentContent += `\n${key}=${cleanVal}`;
+      }
+    }
+
+    fs.writeFileSync(envPath, currentContent, "utf-8");
+    return res.json({
+      success: true,
+      msg: "Settings updated successfully in .env and loaded into active runtime environment."
+    });
+  } catch (err) {
+    console.error("Save settings error:", err);
+    return res.status(500).json({ msg: "Failed to update settings file: " + err.message });
+  }
+});
+
 module.exports = router;
 

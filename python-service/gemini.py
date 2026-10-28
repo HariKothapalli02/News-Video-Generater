@@ -132,9 +132,9 @@ def execute_gemini_with_retry(prompt, model_name=None, max_retries=5):
     ordered_keys = ready_keys + cooling_keys if ready_keys else cooling_keys
 
     # Model fallback hierarchy: prefer high-quota flash models
-    primary_model = model_name or get_gemini_model() or "gemini-flash-latest"
+    primary_model = model_name or get_gemini_model() or "gemini-3.8-flash"
     models_to_try = [primary_model]
-    for alt_model in ["gemini-flash-latest", "gemini-3.5-flash-lite", "gemini-2.5-flash"]:
+    for alt_model in ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.5-flash-lite"]:
         if alt_model not in models_to_try:
             models_to_try.append(alt_model)
 
