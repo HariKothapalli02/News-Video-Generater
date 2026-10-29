@@ -978,20 +978,53 @@ router.get("/download/:id/short/:shortIndex", async (req, res) => {
 });
 
 // @route   GET /api/download/:id/thumbnail
-// @desc    Download the rendered full video thumbnail PNG
+// @desc    Download the rendered full video thumbnail PNG (with automatic frame extraction fallback)
 // @access  Public
 router.get("/download/:id/thumbnail", async (req, res) => {
   try {
     const thumbStorage = getThumbStorageDir();
-    const filePath = path.resolve(path.join(thumbStorage, `${req.params.id}.png`));
+    let filePath = path.resolve(path.join(thumbStorage, `${req.params.id}.png`));
 
+    // 1. Check if .png exists, or .jpg / .jpeg alternatives
     if (!fs.existsSync(filePath)) {
-      return res.status(404).send("Thumbnail image not found in storage directory.");
+      const jpgPath = path.resolve(path.join(thumbStorage, `${req.params.id}.jpg`));
+      const jpegPath = path.resolve(path.join(thumbStorage, `${req.params.id}.jpeg`));
+      if (fs.existsSync(jpgPath)) filePath = jpgPath;
+      else if (fs.existsSync(jpegPath)) filePath = jpegPath;
+      else {
+        // Check database record for custom thumbnail filename
+        const video = await Video.findById(req.params.id);
+        if (video?.thumbnail) {
+          const customThumb = path.resolve(path.join(thumbStorage, path.basename(video.thumbnail)));
+          if (fs.existsSync(customThumb)) filePath = customThumb;
+        }
+      }
     }
 
+    // 2. If still missing, extract frame from MP4 video via ffmpeg fallback
+    if (!fs.existsSync(filePath)) {
+      const videoStorage = getVideoStorageDir();
+      const videoFile = path.resolve(path.join(videoStorage, `${req.params.id}.mp4`));
+      if (fs.existsSync(videoFile)) {
+        try {
+          fs.mkdirSync(thumbStorage, { recursive: true });
+          const { execSync } = require("child_process");
+          execSync(`ffmpeg -y -ss 00:00:03 -i "${videoFile}" -vframes 1 -q:v 2 "${filePath}"`, { timeout: 15000 });
+        } catch (e) {
+          console.warn("[Thumbnail] FFmpeg frame extraction fallback failed:", e.message);
+        }
+      }
+    }
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: "Thumbnail image not found in storage directory." });
+    }
+
+    const mime = filePath.endsWith(".jpg") || filePath.endsWith(".jpeg") ? "image/jpeg" : "image/png";
+    res.setHeader("Content-Type", mime);
     res.sendFile(filePath);
   } catch (err) {
-    res.status(500).send("Server error occurred retrieving thumbnail.");
+    res.status(500).json({ error: "Server error occurred retrieving thumbnail." });
   }
 });
 
@@ -1002,15 +1035,31 @@ router.get("/download/:id/short/:shortIndex/thumbnail", async (req, res) => {
   try {
     const shortIdx = parseInt(req.params.shortIndex, 10);
     const thumbStorage = getThumbStorageDir();
-    const filePath = path.resolve(path.join(thumbStorage, "shorts", `${req.params.id}_short_${shortIdx}.png`));
+    let filePath = path.resolve(path.join(thumbStorage, "shorts", `${req.params.id}_short_${shortIdx}.png`));
 
+    // Fallback: extract frame from short MP4 if thumbnail is missing
     if (!fs.existsSync(filePath)) {
-      return res.status(404).send("Short thumbnail image not found in storage directory.");
+      const videoStorage = getVideoStorageDir();
+      const shortVideo = path.resolve(path.join(videoStorage, "shorts", `${req.params.id}_short_${shortIdx}.mp4`));
+      if (fs.existsSync(shortVideo)) {
+        try {
+          fs.mkdirSync(path.join(thumbStorage, "shorts"), { recursive: true });
+          const { execSync } = require("child_process");
+          execSync(`ffmpeg -y -ss 00:00:01 -i "${shortVideo}" -vframes 1 -q:v 2 "${filePath}"`, { timeout: 15000 });
+        } catch (e) {
+          console.warn("[Thumbnail] Short FFmpeg frame extraction fallback failed:", e.message);
+        }
+      }
     }
 
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: "Short thumbnail image not found in storage directory." });
+    }
+
+    res.setHeader("Content-Type", "image/png");
     res.sendFile(filePath);
   } catch (err) {
-    res.status(500).send("Server error occurred retrieving short thumbnail.");
+    res.status(500).json({ error: "Server error occurred retrieving short thumbnail." });
   }
 });
 
