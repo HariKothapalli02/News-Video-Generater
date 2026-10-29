@@ -12,17 +12,19 @@ import {
   CheckCircle,
   AlertCircle,
   RefreshCw,
-  Key
+  Key,
+  Radio
 } from "lucide-react";
 
 export default function Settings() {
-  const { fetchSettings, updateSettings, testPexelsKey } = useVideoStore();
+  const { fetchSettings, updateSettings, testPexelsKey, testWebhookUrl } = useVideoStore();
   const [configs, setConfigs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [copiedKey, setCopiedKey] = useState(null);
   const [revealed, setRevealed] = useState({});
   const [pexelsStatus, setPexelsStatus] = useState(null); // { valid: bool, msg: string, testing: bool }
+  const [webhookStatus, setWebhookStatus] = useState(null); // { valid: bool, msg: string, testing: bool }
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // The verified working Pexels key from root .env
@@ -82,6 +84,35 @@ export default function Settings() {
       valid: res.valid,
       msg: res.msg || (res.valid ? "Key is 100% valid and verified active!" : "Unauthorized (401)")
     });
+  };
+
+  const handleTestWebhook = async () => {
+    const webhookCfg = configs.find((c) => c.key === "N8N_WEBHOOK_URL");
+    const url = webhookCfg?.value;
+    if (!url) {
+      setWebhookStatus({ valid: false, msg: "Webhook URL is empty. Please enter your n8n webhook URL." });
+      return;
+    }
+
+    setWebhookStatus({ testing: true });
+    const res = await testWebhookUrl(url);
+    setWebhookStatus({
+      testing: false,
+      valid: res.valid,
+      msg: res.msg || (res.valid ? "Webhook is registered and workflow is active (200 OK)!" : "Failed to connect to webhook.")
+    });
+  };
+
+  const handleFixWebhookToProd = () => {
+    const webhookCfg = configs.find((c) => c.key === "N8N_WEBHOOK_URL");
+    if (webhookCfg && webhookCfg.value.includes("/webhook-test/")) {
+      const fixed = webhookCfg.value.replace("/webhook-test/", "/webhook/");
+      handleChange("N8N_WEBHOOK_URL", fixed);
+      setWebhookStatus({
+        valid: null,
+        msg: "Updated URL to production (/webhook/). Click 'Save Settings' and make sure workflow is Active in n8n!"
+      });
+    }
   };
 
   const handleSave = async () => {
@@ -163,12 +194,14 @@ export default function Settings() {
                 const isSecret = cfg.secret;
                 const isRevealed = revealed[cfg.key];
                 const isPexels = cfg.key === "PEXELS_API_KEY";
+                const isWebhook = cfg.key === "N8N_WEBHOOK_URL";
 
                 return (
                   <div key={idx} className="space-y-1.5 p-3 bg-black/40 border border-zinc-900">
                     <div className="flex justify-between items-center text-xs font-mono">
                       <span className="text-zinc-200 font-bold uppercase flex items-center gap-2">
                         {isPexels && <Key className="w-3.5 h-3.5 text-yellow-500" />}
+                        {isWebhook && <Radio className="w-3.5 h-3.5 text-cyan-400" />}
                         <span>{cfg.label}</span>
                       </span>
                       <span className="text-[10px] text-zinc-500 font-mono uppercase px-1.5 py-0.5 bg-black border border-zinc-800 rounded-none">
@@ -252,6 +285,51 @@ export default function Settings() {
                         )}
                       </div>
                     )}
+
+                    {/* Dedicated n8n Webhook Diagnostics & Quick Fix */}
+                    {isWebhook && (
+                      <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t border-zinc-900 text-[11px] font-mono">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleTestWebhook()}
+                            disabled={webhookStatus?.testing}
+                            className="px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 transition-colors cursor-pointer text-[10px] uppercase font-bold"
+                          >
+                            {webhookStatus?.testing ? "Testing Webhook..." : "Test n8n Webhook"}
+                          </button>
+
+                          {cfg.value && cfg.value.includes("/webhook-test/") && (
+                            <button
+                              type="button"
+                              onClick={handleFixWebhookToProd}
+                              className="px-2.5 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition-colors cursor-pointer text-[10px] uppercase font-bold"
+                              title="Convert test URL to production URL"
+                            >
+                              Fix to Production URL
+                            </button>
+                          )}
+                        </div>
+
+                        {webhookStatus && (
+                          <div className="flex items-center gap-1.5 max-w-md">
+                            {webhookStatus.testing ? (
+                              <span className="text-zinc-400 animate-pulse">Contacting n8n Webhook...</span>
+                            ) : webhookStatus.valid ? (
+                              <span className="text-green-400 flex items-center gap-1">
+                                <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                                <span>{webhookStatus.msg}</span>
+                              </span>
+                            ) : (
+                              <span className="text-red-400 flex items-center gap-1 text-[10px] leading-tight">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                <span>{webhookStatus.msg}</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -296,6 +374,20 @@ export default function Settings() {
                 <code className="block bg-zinc-900 p-1.5 text-[10px] text-yellow-300 break-all select-all border border-zinc-700 mt-1">
                   PEXELS_API_KEY={VERIFIED_PEXELS_KEY}
                 </code>
+              </div>
+
+              <div className="p-3 bg-black/60 border border-zinc-800 space-y-1.5">
+                <span className="text-cyan-400 font-bold block uppercase text-[10px]">
+                  Fix: "Webhook Not Registered" Error
+                </span>
+                <p className="text-[11px] text-zinc-400 leading-relaxed">
+                  In n8n, webhooks reject requests with <em>"not registered"</em> if the workflow is Inactive or using a test URL.
+                </p>
+                <div className="text-[10px] text-zinc-300 space-y-1 bg-zinc-900/80 p-2 border border-zinc-800">
+                  <p><strong>1. Toggle Active:</strong> Open the workflow in n8n and toggle the top-right switch from <strong>Inactive</strong> to <strong>Active (ON)</strong>.</p>
+                  <p><strong>2. Use Production URL:</strong> Ensure your URL ends in <code className="text-yellow-300">/webhook/bytewire-video-ready</code> (never use <code className="text-zinc-500">/webhook-test/</code> for production).</p>
+                  <p><strong>3. Save & Test:</strong> Click <strong>Test n8n Webhook</strong> above to verify registration.</p>
+                </div>
               </div>
             </div>
           </div>

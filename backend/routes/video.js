@@ -1368,6 +1368,20 @@ router.post("/settings/test-pexels", auth, async (req, res) => {
   reqTest.end();
 });
 
+// @route   POST /api/settings/test-webhook
+// @desc    Verify n8n Webhook URL connectivity and active registration
+// @access  Private
+router.post("/settings/test-webhook", auth, async (req, res) => {
+  const urlToTest = (req.body.webhookUrl || process.env.N8N_WEBHOOK_URL || "").trim();
+  if (!urlToTest) {
+    return res.status(400).json({ valid: false, msg: "n8n Webhook URL is empty. Please enter a URL." });
+  }
+
+  const { testWebhookConnection } = require("../services/webhookDispatcher");
+  const result = await testWebhookConnection(urlToTest);
+  return res.json(result);
+});
+
 // @route   POST /api/settings
 // @desc    Save updated environment settings to .env file
 // @access  Private

@@ -307,6 +307,18 @@ export const useVideoStore = create((set, get) => {
       }
     },
 
+    testWebhookUrl: async (webhookUrl) => {
+      try {
+        const res = await axios.post(`${API_URL}/settings/test-webhook`, { webhookUrl }, get().getHeaders());
+        return res.data;
+      } catch (err) {
+        return {
+          valid: false,
+          msg: err.response?.data?.msg || err.message || "Failed to reach server to test webhook."
+        };
+      }
+    },
+
     clearActiveJob: () => set({ activeJob: null }),
     clearError: () => set({ error: null })
   };
