@@ -319,6 +319,16 @@ export const useVideoStore = create((set, get) => {
       }
     },
 
+    regenerateThumbnail: async (videoId) => {
+      try {
+        const res = await axios.post(`${API_URL}/video/${videoId}/regenerate-thumbnail`, {}, get().getHeaders());
+        return res.data;
+      } catch (err) {
+        const msg = err.response?.data?.msg || "Failed to regenerate thumbnail.";
+        throw new Error(msg);
+      }
+    },
+
     clearActiveJob: () => set({ activeJob: null }),
     clearError: () => set({ error: null })
   };

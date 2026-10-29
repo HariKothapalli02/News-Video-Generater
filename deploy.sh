@@ -40,6 +40,10 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3-dev \
     nginx \
     gnupg \
+    fonts-noto-core \
+    fonts-telu \
+    fonts-lohit-telu \
+    fonts-dejavu \
     software-properties-common
 
 # Fix ImageMagick security policy for MoviePy text handling if required

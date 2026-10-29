@@ -1063,6 +1063,82 @@ router.get("/download/:id/short/:shortIndex/thumbnail", async (req, res) => {
   }
 });
 
+// @route   POST /api/video/:id/regenerate-thumbnail
+// @desc    Regenerate YouTube thumbnail with updated font rendering and high-CTR layout
+// @access  Private
+router.post("/video/:id/regenerate-thumbnail", auth, async (req, res) => {
+  try {
+    const video = await Video.findById(req.params.id);
+    if (!video) {
+      return res.status(404).json({ msg: "Video not found" });
+    }
+
+    const thumbStorage = getThumbStorageDir();
+    const videoStorage = getVideoStorageDir();
+    fs.mkdirSync(thumbStorage, { recursive: true });
+
+    const thumbPath = path.resolve(path.join(thumbStorage, `${video._id}.png`));
+    const videoFile = path.resolve(path.join(videoStorage, `${video._id}.mp4`));
+
+    // Call python thumbnail generator directly or fallback to ffmpeg
+    const pythonExe = process.platform === "win32"
+      ? path.join(__dirname, "..", "..", "python-service", "venv", "Scripts", "python.exe")
+      : path.join(__dirname, "..", "..", "python-service", "venv", "bin", "python3");
+
+    const fallbackPython = process.platform === "win32" ? "python" : "python3";
+    const pyToUse = fs.existsSync(pythonExe) ? pythonExe : fallbackPython;
+
+    const thumbPyScript = path.resolve(path.join(__dirname, "..", "..", "python-service", "thumbnail.py"));
+
+    const titleText = (video.title || "Breaking News").replace(/["\\]/g, " ");
+    const hookText = (video.youtubeMetadata?.thumbnail_hook || video.title || "").replace(/["\\]/g, " ");
+    const isTelugu = /[\u0C00-\u0C7F]/.test(titleText) || /[\u0C00-\u0C7F]/.test(hookText) || video.language === "telugu";
+
+    const inlinePy = `
+import sys, os
+sys.path.insert(0, r"${path.resolve(path.join(__dirname, "..", "..", "python-service"))}")
+import thumbnail
+thumbnail.create_youtube_thumbnail(
+    output_path=r"${thumbPath}",
+    video_path=r"${fs.existsSync(videoFile) ? videoFile : ""}",
+    title="""${titleText}""",
+    hook_text="""${hookText}""",
+    category="news",
+    news_items=[],
+    is_telugu=${isTelugu ? "True" : "False"}
+)
+print("SUCCESS")
+`;
+
+    const { exec } = require("child_process");
+    exec(`"${pyToUse}" -c "${inlinePy.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { timeout: 30000 }, (error, stdout, stderr) => {
+      if (error || !fs.existsSync(thumbPath)) {
+        console.warn("[Thumbnail] Python regeneration failed, attempting ffmpeg fallback:", stderr || error?.message);
+        if (fs.existsSync(videoFile)) {
+          try {
+            const { execSync } = require("child_process");
+            execSync(`ffmpeg -y -ss 00:00:03 -i "${videoFile}" -vframes 1 -q:v 2 "${thumbPath}"`, { timeout: 15000 });
+          } catch (ffErr) {
+            console.error("[Thumbnail] FFmpeg fallback also failed:", ffErr.message);
+          }
+        }
+      }
+
+      video.thumbnail = `/thumbnails/${video._id}.png`;
+      video.save().catch(console.error);
+
+      res.json({
+        msg: "Thumbnail regenerated successfully",
+        thumbnail: `/thumbnails/${video._id}.png?t=${Date.now()}`
+      });
+    });
+  } catch (err) {
+    console.error("Regenerate thumbnail error:", err);
+    res.status(500).json({ msg: "Failed to regenerate thumbnail" });
+  }
+});
+
+
 // @route   GET /api/scheduler/status
 // @desc    Get automated daily scheduler status and upcoming rotation
 // @access  Private

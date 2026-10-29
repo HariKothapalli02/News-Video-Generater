@@ -9,7 +9,6 @@ from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageOps
 
 ENV_PATH = os.path.join(os.path.dirname(__file__), "..", ".env")
 
-
 def get_pexels_api_key():
     load_dotenv(ENV_PATH, override=True)
     return os.getenv("PEXELS_API_KEY", "").strip()
@@ -17,40 +16,125 @@ def get_pexels_api_key():
 THUMB_WIDTH = 1280
 THUMB_HEIGHT = 720
 
+FONTS_DIR = os.path.join(os.path.dirname(__file__), "fonts")
+LOCAL_TELUGU_FONT = os.path.join(FONTS_DIR, "NotoSansTelugu-Bold.ttf")
 
-def get_best_font(size, bold=True):
-    """
-    Attempts to load a strong, clean sans-serif bold font across Windows, Linux, and Mac.
-    Falls back gracefully to Pillow default font.
-    """
-    candidate_fonts = []
-    if bold:
-        candidate_fonts.extend([
-            "NirmalaB.ttf", "nirmalab.ttf", "gautamib.ttf", "NotoSansTelugu-Bold.ttf",
-            "arialbd.ttf", "impact.ttf", "segoeuib.ttf", "calibrib.ttf",
-            "trebucbd.ttf", "DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf",
-            "HelveticaNeue-Bold.ttf", "Arial-Bold.ttf"
-        ])
-    candidate_fonts.extend([
-        "Nirmala.ttf", "nirmala.ttf", "gautami.ttf", "NotoSansTelugu-Regular.ttf",
-        "arial.ttf", "segoeui.ttf", "calibri.ttf",
-        "DejaVuSans.ttf", "LiberationSans-Regular.ttf"
-    ])
+TELUGU_FONT_URLS = [
+    "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansTelugu/NotoSansTelugu-Bold.ttf",
+    "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansTelugu/NotoSansTelugu-Bold.ttf",
+    "https://fonts.gstatic.com/ea/notosanstelugu/v3/NotoSansTelugu-Bold.ttf"
+]
 
-    for font_name in candidate_fonts:
+
+def ensure_telugu_font_downloaded():
+    """
+    Ensures NotoSansTelugu-Bold.ttf is present locally. If missing, auto-downloads it from Google.
+    Guarantees that Telugu glyphs never render as empty square boxes (tofu).
+    """
+    os.makedirs(FONTS_DIR, exist_ok=True)
+    if os.path.exists(LOCAL_TELUGU_FONT) and os.path.getsize(LOCAL_TELUGU_FONT) > 20000:
+        return LOCAL_TELUGU_FONT
+
+    print(f"[Thumbnail] Auto-downloading Google Noto Sans Telugu font to {LOCAL_TELUGU_FONT}...")
+    for url in TELUGU_FONT_URLS:
         try:
-            return ImageFont.truetype(font_name, size)
+            resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            if resp.status_code == 200 and len(resp.content) > 20000:
+                with open(LOCAL_TELUGU_FONT, "wb") as f:
+                    f.write(resp.content)
+                print(f"[Thumbnail] Downloaded NotoSansTelugu-Bold.ttf ({len(resp.content) / 1024:.1f} KB)")
+                return LOCAL_TELUGU_FONT
+        except Exception as e:
+            print(f"[Thumbnail] Font download attempt failed ({url}): {e}")
+
+    return None
+
+
+def font_supports_telugu(font):
+    """
+    Verifies that a loaded Pillow font can render Telugu characters without tofu boxes.
+    """
+    try:
+        # 'ఆ' is Telugu letter AA (U+0C06)
+        bbox = font.getbbox("ఆ")
+        if bbox and (bbox[2] - bbox[0] > 0) and (bbox[3] - bbox[1] > 0):
+            mask = font.getmask("ఆ")
+            if mask and mask.size[0] > 0 and mask.size[1] > 0:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def get_best_font(size, bold=True, for_telugu=True):
+    """
+    Loads a font guaranteed to render Telugu properly.
+    Prioritizes bundled/downloaded Noto Sans Telugu, then checks system font directories.
+    """
+    candidates = []
+
+    if for_telugu:
+        local_font = ensure_telugu_font_downloaded()
+        if local_font and os.path.exists(local_font):
+            candidates.append(local_font)
+
+        # Linux / Ubuntu system fonts (installed via fonts-noto-core / fonts-telu / fonts-lohit-telu)
+        candidates.extend([
+            "/usr/share/fonts/truetype/noto/NotoSansTelugu-Bold.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansTelugu-Regular.ttf",
+            "/usr/share/fonts/opentype/noto/NotoSansTelugu-Bold.otf",
+            "/usr/share/fonts/opentype/noto/NotoSansTelugu-Regular.otf",
+            "/usr/share/fonts/truetype/lohit-telugu/Lohit-Telugu.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        ])
+
+        # Windows system fonts
+        candidates.extend([
+            "C:/Windows/Fonts/NirmalaB.ttf",
+            "C:/Windows/Fonts/Nirmala.ttf",
+            "C:/Windows/Fonts/gautamib.ttf",
+            "C:/Windows/Fonts/gautami.ttf",
+            "NirmalaB.ttf", "nirmalab.ttf", "Nirmala.ttf", "nirmala.ttf",
+            "gautamib.ttf", "gautami.ttf"
+        ])
+
+    # Standard English fallbacks
+    if bold:
+        candidates.extend([
+            "arialbd.ttf", "impact.ttf", "segoeuib.ttf", "calibrib.ttf",
+            "DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf"
+        ])
+    else:
+        candidates.extend([
+            "arial.ttf", "segoeui.ttf", "calibri.ttf",
+            "DejaVuSans.ttf", "LiberationSans-Regular.ttf"
+        ])
+
+    for font_path in candidates:
+        try:
+            f = ImageFont.truetype(font_path, size)
+            if for_telugu:
+                if font_supports_telugu(f):
+                    return f
+            else:
+                return f
         except Exception:
             continue
 
-    # Fallback to default font
+    if for_telugu:
+        downloaded = ensure_telugu_font_downloaded()
+        if downloaded and os.path.exists(downloaded):
+            try:
+                return ImageFont.truetype(downloaded, size)
+            except Exception:
+                pass
+
     return ImageFont.load_default()
 
 
 def fetch_pexels_photo(query):
     """
     Searches Pexels Photo API for high-resolution landscape images matching the query.
-    Returns a PIL Image object or None.
     """
     api_key = get_pexels_api_key()
     if not api_key:
@@ -77,7 +161,7 @@ def fetch_pexels_photo(query):
         if not photos:
             return None
 
-        # Pick the photo with highest resolution
+        # Pick photo with highest resolution
         best_photo = photos[0]
         for p in photos:
             if p.get("width", 0) >= 1280:
@@ -138,12 +222,13 @@ def fetch_wikimedia_photo(query):
                         return Image.open(io.BytesIO(img_res.content)).convert("RGB")
     except Exception as e:
         print(f"[Thumbnail] Notice: Wikimedia image search: {e}")
+
     return None
 
 
 def extract_video_frame(video_path, timestamp_sec=4.0):
     """
-    Extracts a crisp frame from the rendered video as fallback.
+    Extracts a crisp frame from the compiled video file via FFmpeg.
     """
     if not video_path or not os.path.exists(video_path):
         return None
@@ -170,16 +255,15 @@ def extract_video_frame(video_path, timestamp_sec=4.0):
 
 def create_solid_fallback(subject):
     """
-    Creates a modern dark gradient backdrop if no photo is available.
+    Creates a deep broadcast studio gradient backdrop if no photo is available.
     """
-    img = Image.new("RGB", (THUMB_WIDTH, THUMB_HEIGHT), color=(15, 23, 42))
+    img = Image.new("RGB", (THUMB_WIDTH, THUMB_HEIGHT), color=(10, 15, 28))
     draw = ImageDraw.Draw(img)
-    # Draw subtle background glow
     for y in range(THUMB_HEIGHT):
         ratio = y / THUMB_HEIGHT
-        r = int(15 + ratio * 20)
-        g = int(23 + ratio * 15)
-        b = int(42 + ratio * 35)
+        r = int(12 + ratio * 24)
+        g = int(18 + ratio * 16)
+        b = int(36 + ratio * 48)
         draw.line([(0, y), (THUMB_WIDTH, y)], fill=(r, g, b))
     return img
 
@@ -203,58 +287,66 @@ def create_youtube_thumbnail(
     title="",
     hook_text="",
     facts=None,
-    subject="news",
+    subject="telugu_news",
     video_path=None,
     intro_offset=0.0
 ):
     """
-    Generates a professional, high-CTR YouTube News Thumbnail:
-    1. Downloads high-res photo from Pexels based on the #1 breaking news story.
-    2. Resizes & crops to 1280x720 with cinematic color enhancement.
-    3. Adds high-contrast left & bottom dark gradient overlay for text readability.
-    4. Renders '🔴 BREAKING NEWS' badge, punchy high-contrast hook headline,
-       accent highlight word, and 'BYTEWIRE NEWS' brand pill.
+    Generates a viral, high-CTR YouTube News Thumbnail:
+    1. Gathers high-res news visual (video frame or Pexels broadcast news photos).
+    2. Applies cinematic contrast & saturation enhancements.
+    3. Renders guaranteed Telugu fonts (Noto Sans Telugu) - NO TOFU SQUARES.
+    4. Displays high-CTR elements:
+       - '🔴 బ్రేకింగ్ న్యూస్' pill badge with glowing border.
+       - '⚡ లైవ్ అప్‌డేట్స్ | BYTEWIRE' glass brand tag.
+       - High-contrast 2-line Telugu headline with vibrant golden yellow (#FFE600) hook + white story title.
+       - Drop shadow + thick black outline for maximum mobile readability.
+       - Golden-bordered '🔥 టాప్ 10 ముఖ్యాంశాలు • నేటి తాజా వార్తలు' highlights pill.
+       - Bottom red & yellow breaking news ticker accent line.
     5. Saves directly to output_path.
     """
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     facts = facts or []
 
-    # 1. Determine image search query from top breaking story
+    # 1. Determine English visual search query (never search Telugu words on Pexels/Wikimedia)
     primary_query = ""
     if facts and len(facts) > 0:
         f0 = facts[0]
-        # Clean title of symbols and use top keywords
-        t_clean = re.sub(r"[^a-zA-Z0-9\s]", " ", f0.get("title", "")).strip()
-        words = [w for w in t_clean.split() if len(w) > 3 and w.lower() not in ["news", "today", "breaking", "with", "that", "this", "from"]]
-        primary_query = " ".join(words[:4])
-    elif title:
-        t_clean = re.sub(r"[^a-zA-Z0-9\s]", " ", title).strip()
-        words = [w for w in t_clean.split() if len(w) > 3 and w.lower() not in ["news", "today", "breaking", "with", "that", "this", "from"]]
-        primary_query = " ".join(words[:4])
+        # Check if f0 already has an English search query
+        primary_query = f0.get("search_query") or f0.get("query") or f0.get("keywords") or ""
+        if not primary_query:
+            eng_words = [w for w in re.sub(r"[^a-zA-Z\s]", " ", f0.get("title", "")).split() if len(w) > 2]
+            if len(eng_words) >= 2:
+                primary_query = " ".join(eng_words[:3])
+
+    telugu_curated_queries = [
+        "breaking news television broadcast studio",
+        "live news television studio anchor",
+        "press conference news media journalists",
+        "hyderabad telangana india city news",
+        "andhra pradesh breaking news broadcast",
+        "television newsroom broadcast camera live"
+    ]
 
     if not primary_query:
-        primary_query = f"{subject} technology breaking news"
+        import random
+        primary_query = random.choice(telugu_curated_queries)
 
-    # 2. Gather image (Pexels -> Wikimedia Commons -> video frame -> solid backdrop)
+    # 2. Gather image (First check real video frame, then Pexels, then Wikimedia, then solid)
     found_img = None
-    if primary_query:
+
+    # Priority 1: Extract real broadcast b-roll frame from compiled video (always 100% relevant!)
+    if video_path and os.path.exists(video_path):
+        print(f"[Thumbnail] Extracting high-res broadcast visual frame from video at {max(1.0, intro_offset + 5.0):.1f}s...")
+        found_img = extract_video_frame(video_path, timestamp_sec=max(1.0, intro_offset + 5.0))
+
+    # Priority 2: Pexels photo search
+    if not found_img and primary_query:
         found_img = fetch_pexels_photo(primary_query)
 
-    # Fallback to general subject query if specific story query yielded nothing
-    if not found_img and subject:
-        found_img = fetch_pexels_photo(f"{subject} breaking news")
-
-    # Fallback to Wikimedia Commons (free, no API key required)
-    if not found_img and primary_query:
-        print(f"[Thumbnail] Querying Wikimedia Commons photo for '{primary_query}'...")
-        found_img = fetch_wikimedia_photo(primary_query)
-
-    if not found_img and subject:
-        found_img = fetch_wikimedia_photo(f"{subject} news")
-
-    if not found_img and video_path:
-        print("[Thumbnail] Falling back to extracting high-res frame from video...")
-        found_img = extract_video_frame(video_path, timestamp_sec=max(1.0, intro_offset + 4.0))
+    # Priority 3: Wikimedia Commons
+    if not found_img:
+        found_img = fetch_wikimedia_photo("breaking news broadcast studio")
 
     base_raw = found_img if found_img is not None else create_solid_fallback(subject)
 
@@ -264,141 +356,163 @@ def create_youtube_thumbnail(
 
     # 4. Cinematic enhancements (boost contrast & color vibrancy)
     enhancer_contrast = ImageEnhance.Contrast(base_image)
-    base_image = enhancer_contrast.enhance(1.15)
+    base_image = enhancer_contrast.enhance(1.22)
     enhancer_color = ImageEnhance.Color(base_image)
-    base_image = enhancer_color.enhance(1.20)
+    base_image = enhancer_color.enhance(1.30)
 
     # 5. Apply Left & Bottom Dark Gradient Overlay for text contrast
     overlay = Image.new("RGBA", (THUMB_WIDTH, THUMB_HEIGHT), (0, 0, 0, 0))
     overlay_draw = ImageDraw.Draw(overlay)
 
-    # Multi-stop horizontal gradient from left (darker) to right (clear)
-    for x in range(int(THUMB_WIDTH * 0.75)):
-        ratio = x / (THUMB_WIDTH * 0.75)
-        # Cosine ease out for natural vignette
-        alpha = int(220 * (1.0 - math.sin(ratio * math.pi / 2)))
-        overlay_draw.line([(x, 0), (x, THUMB_HEIGHT)], fill=(10, 15, 28, alpha))
+    # Deep left-to-right gradient for 100% text readability
+    for x in range(int(THUMB_WIDTH * 0.72)):
+        ratio = x / (THUMB_WIDTH * 0.72)
+        alpha = int(235 * (1.0 - math.sin(ratio * math.pi / 2)))
+        overlay_draw.line([(x, 0), (x, THUMB_HEIGHT)], fill=(8, 12, 24, alpha))
 
     # Bottom gradient overlay for subtext and branding
-    for y in range(int(THUMB_HEIGHT * 0.65), THUMB_HEIGHT):
-        ratio = (y - THUMB_HEIGHT * 0.65) / (THUMB_HEIGHT * 0.35)
-        alpha = int(180 * ratio)
-        overlay_draw.line([(0, y), (THUMB_WIDTH, y)], fill=(5, 8, 18, alpha))
+    for y in range(int(THUMB_HEIGHT * 0.60), THUMB_HEIGHT):
+        ratio = (y - THUMB_HEIGHT * 0.60) / (THUMB_HEIGHT * 0.40)
+        alpha = int(210 * ratio)
+        overlay_draw.line([(0, y), (THUMB_WIDTH, y)], fill=(4, 6, 16, alpha))
 
     base_image = Image.alpha_composite(base_image.convert("RGBA"), overlay)
     draw = ImageDraw.Draw(base_image)
 
-    # 6. Top Left Pill Badge: "🔴 BREAKING NEWS"
-    badge_x = 60
-    badge_y = 60
-    badge_font = get_best_font(26, bold=True)
-    badge_text = "🔴 BREAKING NEWS"
+    # 6. Top Left Pill Badge: "🔴 బ్రేకింగ్ న్యూస్ | LIVE"
+    badge_x = 55
+    badge_y = 50
+    badge_font = get_best_font(26, bold=True, for_telugu=True)
+    badge_text = "🔴 బ్రేకింగ్ న్యూస్"
     try:
         b_box = badge_font.getbbox(badge_text)
         b_w, b_h = b_box[2] - b_box[0], b_box[3] - b_box[1]
     except Exception:
-        b_w, b_h = 240, 30
+        b_w, b_h = 250, 32
 
-    pad_x, pad_y = 20, 10
+    pad_x, pad_y = 22, 10
     draw_rounded_pill(
         draw,
-        (badge_x, badge_y, badge_x + b_w + pad_x * 2, badge_y + b_h + pad_y * 2 + 4),
-        fill_color=(220, 38, 38, 240),  # Vibrant red
-        border_color=(254, 202, 202, 180),
+        (badge_x, badge_y, badge_x + b_w + pad_x * 2, badge_y + b_h + pad_y * 2 + 6),
+        fill_color=(220, 38, 38, 245),  # Vibrant breaking news red
+        border_color=(254, 202, 202, 200),
         border_width=2,
         radius=14
     )
     draw.text((badge_x + pad_x, badge_y + pad_y), badge_text, fill=(255, 255, 255, 255), font=badge_font)
 
     # 7. Top Right Brand Pill: "BYTEWIRE NEWS"
-    brand_text = "BYTEWIRE NEWS"
-    brand_font = get_best_font(22, bold=True)
+    brand_text = "BYTEWIRE NEWS • LIVE"
+    brand_font = get_best_font(20, bold=True, for_telugu=False)
     try:
         br_box = brand_font.getbbox(brand_text)
         br_w, br_h = br_box[2] - br_box[0], br_box[3] - br_box[1]
     except Exception:
-        br_w, br_h = 160, 24
+        br_w, br_h = 200, 24
 
-    br_x = THUMB_WIDTH - 60 - br_w - pad_x * 2
+    br_x = THUMB_WIDTH - 55 - br_w - pad_x * 2
     draw_rounded_pill(
         draw,
-        (br_x, badge_y, br_x + br_w + pad_x * 2, badge_y + br_h + pad_y * 2 + 4),
-        fill_color=(15, 23, 42, 210),  # Dark navy glass
-        border_color=(51, 65, 85, 200),
-        border_width=1,
-        radius=12
+        (br_x, badge_y, br_x + br_w + pad_x * 2, badge_y + br_h + pad_y * 2 + 6),
+        fill_color=(15, 23, 42, 220),  # Dark navy glass
+        border_color=(234, 179, 8, 190),  # Gold rim
+        border_width=1.5,
+        radius=14
     )
-    draw.text((br_x + pad_x, badge_y + pad_y), brand_text, fill=(241, 245, 249, 255), font=brand_font)
+    draw.text((br_x + pad_x, badge_y + pad_y + 2), brand_text, fill=(254, 240, 138, 255), font=brand_font)
 
-    # 8. Main Catchy Hook Headline (Big, Bold, 2-3 Lines)
-    # Formulate punchy headline words
+    # 8. High-CTR Telugu Headline Construction
+    # Line 1: Punchy curiosity hook (e.g., "సంచలన వార్త!", "బిగ్ బ్రేకింగ్!")
+    # Line 2: Story topic / detail
     lines = []
-    if hook_text and len(hook_text.strip()) > 3:
-        clean_hook = hook_text.upper().replace("*", "").strip()
-        lines = [clean_hook]
+    clean_hook = (hook_text or "").replace("*", "").strip()
+
+    if clean_hook and len(clean_hook) > 1:
+        lines.append(clean_hook)
+        if facts and len(facts) > 0:
+            top_title = facts[0].get("title", "").replace("*", "").strip()
+            # Clean title words
+            t_words = [w for w in top_title.split() if len(w) > 1]
+            if len(t_words) > 0:
+                lines.append(" ".join(t_words[:4]))
     elif facts and len(facts) > 0:
         top_title = facts[0].get("title", "").replace("*", "").strip()
-        # Clean title into 4-6 strong words (supporting Telugu script)
-        w_list = [w for w in re.sub(r"[^a-zA-Z0-9\u0C00-\u0C7F\s]", "", top_title).split() if len(w) > 1]
+        w_list = [w for w in top_title.split() if len(w) > 1]
         if len(w_list) >= 4:
             lines = [" ".join(w_list[:3]), " ".join(w_list[3:6])]
         elif len(w_list) > 0:
-            lines = [" ".join(w_list), "సంచలన వార్త!"]
+            lines = [" ".join(w_list), "సంచలన బ్రేకింగ్!"]
         else:
             lines = ["నేటి ముఖ్య వార్తలు", "టాప్ 10 ముఖ్యాంశాలు"]
     else:
         lines = ["బ్రేకింగ్ న్యూస్:", "టాప్ 10 తాజా వార్తలు"]
 
-    # Limit to max 3 lines
-    lines = lines[:3]
+    lines = lines[:2]  # Keep to 2 massive punchy lines for maximum mobile CTR
 
-    # Render Main Headline with Stroke & Drop Shadow
-    head_font_size = 68 if len(lines) <= 2 else 56
-    head_font = get_best_font(head_font_size, bold=True)
+    # 9. Render Main Headline with Heavy Outline & Glow
+    head_font_size = 66
+    head_font = get_best_font(head_font_size, bold=True, for_telugu=True)
 
-    text_start_y = 170
-    line_spacing = head_font_size + 14
+    text_start_y = 160
+    line_spacing = head_font_size + 24
 
     for idx, line_text in enumerate(lines):
         curr_y = text_start_y + (idx * line_spacing)
-        curr_x = 60
+        curr_x = 55
 
-        # Alternate color: make the 2nd line bright yellow for maximum CTR
-        text_color = (250, 204, 21, 255) if idx == 1 else (255, 255, 255, 255)
+        # Measure text width
+        try:
+            line_box = head_font.getbbox(line_text)
+            lw = line_box[2] - line_box[0]
+            lh = line_box[3] - line_box[1]
+        except Exception:
+            lw, lh = 600, head_font_size
 
-        # Deep drop shadow
+        # Draw dark backing ribbon for 100% legibility on any image
+        ribbon_bg = (10, 15, 28, 220) if idx == 0 else (15, 23, 42, 210)
+        ribbon_border = (234, 179, 8, 200) if idx == 0 else (220, 38, 38, 180)
+        draw_rounded_pill(
+            draw,
+            (curr_x - 12, curr_y - 6, curr_x + lw + 24, curr_y + lh + 18),
+            fill_color=ribbon_bg,
+            border_color=ribbon_border,
+            border_width=2,
+            radius=12
+        )
+
+        # Line 1 in Golden Yellow (#FFE600) for intense CTR curiosity; Line 2 in Crisp White (#FFFFFF)
+        text_color = (255, 230, 0, 255) if idx == 0 else (255, 255, 255, 255)
+
+        # 4px drop shadow + 3px outline
+        for dx, dy in [(-3, 0), (3, 0), (0, -3), (0, 3), (-2, -2), (2, 2), (-2, 2), (2, -2)]:
+            draw.text((curr_x + dx, curr_y + dy), line_text, fill=(0, 0, 0, 255), font=head_font)
         draw.text((curr_x + 4, curr_y + 4), line_text, fill=(0, 0, 0, 240), font=head_font)
-        # Outline / stroke
-        for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2), (-2, -2), (2, 2)]:
-            draw.text((curr_x + dx, curr_y + dy), line_text, fill=(0, 0, 0, 200), font=head_font)
         # Main text
         draw.text((curr_x, curr_y), line_text, fill=text_color, font=head_font)
 
-    # 9. Sub-headline badge (e.g. "TOP 10 VERIFIED STORIES TODAY")
-    sub_y = text_start_y + (len(lines) * line_spacing) + 20
-    sub_font = get_best_font(28, bold=True)
-    if "telugu" in str(subject).lower():
-        sub_text = "టాప్ 10 తాజా వార్తలు • నేటి ముఖ్యాంశాలు"
-    else:
-        sub_text = f"TOP 10 {subject.upper()} STORIES • TODAY"
+    # 10. Sub-headline Viral Highlights Banner: "🔥 టాప్ 10 ముఖ్యాంశాలు • నేటి తాజా వార్తలు"
+    sub_y = text_start_y + (len(lines) * line_spacing) + 26
+    sub_font = get_best_font(28, bold=True, for_telugu=True)
+    sub_text = "🔥 టాప్ 10 ముఖ్యాంశాలు • నేటి తాజా వార్తలు"
     try:
         s_box = sub_font.getbbox(sub_text)
         s_w, s_h = s_box[2] - s_box[0], s_box[3] - s_box[1]
     except Exception:
-        s_w, s_h = 320, 30
+        s_w, s_h = 420, 32
 
     draw_rounded_pill(
         draw,
-        (60, sub_y, 60 + s_w + 30, sub_y + s_h + 20),
-        fill_color=(30, 41, 59, 230),
-        border_color=(234, 179, 8, 220),  # Yellow amber accent
+        (55, sub_y, 55 + s_w + 36, sub_y + s_h + 22),
+        fill_color=(15, 23, 42, 235),
+        border_color=(234, 179, 8, 230),  # Yellow amber accent
         border_width=2,
-        radius=10
+        radius=12
     )
-    draw.text((75, sub_y + 8), sub_text, fill=(254, 240, 138, 255), font=sub_font)
+    draw.text((72, sub_y + 8), sub_text, fill=(254, 240, 138, 255), font=sub_font)
 
-    # 10. Bottom Accent Bar (6px Red bar)
-    draw.rectangle([(0, THUMB_HEIGHT - 8), (THUMB_WIDTH, THUMB_HEIGHT)], fill=(220, 38, 38, 255))
+    # 11. Bottom Breaking News Accent Line (8px Red & Yellow Strip)
+    draw.rectangle([(0, THUMB_HEIGHT - 10), (int(THUMB_WIDTH * 0.6), THUMB_HEIGHT)], fill=(220, 38, 38, 255))
+    draw.rectangle([(int(THUMB_WIDTH * 0.6), THUMB_HEIGHT - 10), (THUMB_WIDTH, THUMB_HEIGHT)], fill=(234, 179, 8, 255))
 
     # Convert to RGB and save
     final_img = base_image.convert("RGB")

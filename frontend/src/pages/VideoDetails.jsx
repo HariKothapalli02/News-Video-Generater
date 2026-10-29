@@ -35,11 +35,12 @@ export default function VideoDetails({ id, onBack }) {
   const [postStatus, setPostStatus] = useState({});
   const [postingFullVideo, setPostingFullVideo] = useState(false);
   const [fullVideoPostStatus, setFullVideoPostStatus] = useState(null);
+  const [regeneratingThumbnail, setRegeneratingThumbnail] = useState(false);
   const [manualUrlInput, setManualUrlInput] = useState("");
   const [showManualModal, setShowManualModal] = useState(false);
   const [manualModalTarget, setManualModalTarget] = useState(null);
 
-  const { retryVideo, getHeaders, generateShorts, generateMetadata, postReel, postFullVideo, markVideoPosted, toggleUploadStatus, deleteVideoMedia, activeJob } = useVideoStore();
+  const { retryVideo, getHeaders, generateShorts, generateMetadata, postReel, postFullVideo, markVideoPosted, toggleUploadStatus, deleteVideoMedia, regenerateThumbnail, activeJob } = useVideoStore();
 
   const fetchVideoDetails = async () => {
     try {
@@ -208,6 +209,22 @@ export default function VideoDetails({ id, onBack }) {
       });
     } finally {
       setPostingFullVideo(false);
+    }
+  };
+
+  const handleRegenerateThumbnail = async () => {
+    if (!video) return;
+    setRegeneratingThumbnail(true);
+    try {
+      const data = await regenerateThumbnail(video._id);
+      setVideo((prev) => ({
+        ...prev,
+        thumbnail: data.thumbnail || `/thumbnails/${video._id}.png?t=${Date.now()}`
+      }));
+    } catch (err) {
+      alert(err.message || "Failed to regenerate thumbnail.");
+    } finally {
+      setRegeneratingThumbnail(false);
     }
   };
 
@@ -401,6 +418,31 @@ export default function VideoDetails({ id, onBack }) {
               <Trash2 className="w-3.5 h-3.5" />
               <span>Clear MP4 Files</span>
             </button>
+          )}
+
+          {isCompleted && (
+            <button
+              onClick={handleRegenerateThumbnail}
+              disabled={regeneratingThumbnail}
+              className="flex items-center gap-1.5 bg-zinc-900 hover:bg-white hover:text-black border border-zinc-700 px-3 py-1.5 text-white rounded-none text-xs font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50"
+              title="Re-render YouTube Thumbnail with crisp Telugu fonts and high-CTR layout"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>{regeneratingThumbnail ? "Generating..." : "Regenerate Thumbnail"}</span>
+            </button>
+          )}
+
+          {isCompleted && (
+            <a
+              href={`/api/download/${video._id}/thumbnail`}
+              download={`${video._id}_thumbnail.png`}
+              className="flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-zinc-300 hover:text-white rounded-none text-xs font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Thumbnail</span>
+            </a>
           )}
 
           {isCompleted && (
