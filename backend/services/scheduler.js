@@ -191,28 +191,17 @@ async function publishDailyFullVideo(io) {
     }).sort({ createdAt: 1 });
 
     if (pendingVideos.length === 0) {
-      // Fallback: look for most recent unposted completed video
-      const fallback = await Video.findOne({
-        status: "Completed",
-        disableAutoUpload: { $ne: true },
-        isPosted: { $ne: true },
-        isUploading: { $ne: true },
-        $or: [{ youtubeVideoId: "" }, { youtubeVideoId: null }, { youtubeVideoId: { $exists: false } }],
-        $and: [{ $or: [{ youtubeUrl: "" }, { youtubeUrl: null }, { youtubeUrl: { $exists: false } }] }]
-      }).sort({ createdAt: -1 });
-
-      if (fallback) {
-        pendingVideos = [fallback];
-      }
-    }
-
-    if (pendingVideos.length === 0) {
-      console.log("[Scheduler 6:00 AM] ℹ️ No unposted completed video found for YouTube upload. All videos are posted or currently uploading.");
-      return { success: true, skipped: true, reason: "All completed videos are already posted or uploading" };
+      console.log("[Scheduler 6:00 AM] ℹ️ No unposted completed video found from today for YouTube upload. Skipping (will not re-upload old videos).");
+      return { success: true, skipped: true, reason: "No new completed video from today to publish" };
     }
 
     const results = [];
     for (const video of pendingVideos) {
+      if (video.isPosted || video.youtubeVideoId || video.youtubeUrl) {
+        console.log(`[Scheduler 6:00 AM] Video '${video.title}' (${video._id}) is ALREADY posted. Skipping duplicate upload.`);
+        continue;
+      }
+
       console.log(`[Scheduler 6:00 AM] Found pending video '${video.title}' (${video._id}). Locking and dispatching to YouTube uploader...`);
       video.isUploading = true;
       video.uploadStartedAt = new Date();
@@ -236,9 +225,10 @@ async function publishDailyFullVideo(io) {
       }
 
       video.isUploading = false;
+      // Mark permanently posted so this video can NEVER be posted more than once
+      video.isPosted = true;
+      video.postedAt = video.postedAt || new Date();
       if (ytId) {
-        video.isPosted = true;
-        video.postedAt = new Date();
         video.youtubeVideoId = ytId;
         video.youtubeUrl = `https://www.youtube.com/watch?v=${ytId}`;
       }
@@ -283,17 +273,8 @@ async function publishDailyShort(io, shortIdx) {
     }).sort({ createdAt: 1 });
 
     if (candidateVideos.length === 0) {
-      // Fallback: look for most recent completed video with shorts
-      const fallback = await Video.findOne({
-        status: "Completed",
-        "shorts.0": { $exists: true }
-      }).sort({ createdAt: -1 });
-      if (fallback) candidateVideos = [fallback];
-    }
-
-    if (candidateVideos.length === 0) {
-      console.log(`[Scheduler ${slotName}] ℹ️ No completed video with shorts found.`);
-      return { success: false, reason: "No video found" };
+      console.log(`[Scheduler ${slotName}] ℹ️ No completed video with shorts found from today. Skipping (will not re-upload old shorts).`);
+      return { success: true, skipped: true, reason: "No video for today with shorts" };
     }
 
     const results = [];
@@ -345,10 +326,10 @@ async function publishDailyShort(io, shortIdx) {
       }
 
       short.isUploading = false;
-      // Only mark posted if real YouTube ID returned
+      // Mark permanently posted so this short can NEVER be posted more than once
+      short.isPosted = true;
+      short.postedAt = short.postedAt || new Date();
       if (ytId) {
-        short.isPosted = true;
-        short.postedAt = new Date();
         short.youtubeShortId = ytId;
         short.youtubeShortUrl = `https://www.youtube.com/shorts/${ytId}`;
       }

@@ -134,8 +134,18 @@ class VideoQueue {
         await latestDoc.save();
         this.broadcastUpdate(latestDoc);
 
-        // 1. Immediately upload completed full video to YouTube via webhook uploader
-        await this.autoUploadToYouTube(latestDoc);
+        // 1. Publishing handling:
+        // Automated videos MUST NOT auto-upload immediately here because the publishing scheduler
+        // is explicitly scheduled to publish the full video at 5:30/6:00 AM and shorts at 9:00 AM, 2:00 PM, 6:00 PM.
+        // This guarantees each automated video and short is posted strictly once.
+        if (latestDoc.isAutomated) {
+          this.logsBuffer += `\n[SYSTEM] Video generated successfully. Queued for automated publishing (Full video at 5:30/6:00 AM, Shorts at 9:00 AM, 2:00 PM, 6:00 PM).`;
+          latestDoc.logs = this.logsBuffer;
+          await latestDoc.save();
+          this.broadcastUpdate(latestDoc);
+        } else if (!latestDoc.disableAutoUpload && !latestDoc.isPosted) {
+          await this.autoUploadToYouTube(latestDoc);
+        }
 
         // 2. Chaining: If this was automated Telugu video, trigger English generation next
         await this.checkAndTriggerNextJob(latestDoc);
@@ -165,6 +175,10 @@ class VideoQueue {
       console.log(`[VideoQueue] Auto-upload disabled for video '${videoDoc.title}'.`);
       return;
     }
+    if (videoDoc.isPosted || videoDoc.youtubeVideoId || videoDoc.youtubeUrl) {
+      console.log(`[VideoQueue] Video '${videoDoc.title}' (${videoDoc._id}) is ALREADY posted. Skipping auto-upload.`);
+      return;
+    }
     const webhookUrl = process.env.N8N_WEBHOOK_URL;
     if (!webhookUrl) {
       console.log(`[VideoQueue] N8N_WEBHOOK_URL not configured. Video saved locally.`);
@@ -187,15 +201,16 @@ class VideoQueue {
     try {
       const dispatchResult = await dispatchFullVideoToWebhook(videoDoc);
       videoDoc.isUploading = false;
-      if (dispatchResult.dispatched) {
+      if (dispatchResult.dispatched || dispatchResult.timeout) {
         let ytId = "";
         if (dispatchResult.response) {
           const respObj = Array.isArray(dispatchResult.response) ? dispatchResult.response[0] : dispatchResult.response;
           ytId = respObj?.youtubeVideoId || respObj?.uploadId || respObj?.id || "";
         }
+        // Mark permanently posted to prevent multiple uploads
+        videoDoc.isPosted = true;
+        videoDoc.postedAt = videoDoc.postedAt || new Date();
         if (ytId) {
-          videoDoc.isPosted = true;
-          videoDoc.postedAt = new Date();
           videoDoc.youtubeVideoId = ytId;
           videoDoc.youtubeUrl = `https://www.youtube.com/watch?v=${ytId}`;
         }

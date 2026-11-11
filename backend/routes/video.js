@@ -153,27 +153,6 @@ router.get("/status", auth, async (req, res) => {
 router.get("/history", auth, async (req, res) => {
   try {
     const videos = await Video.find().sort({ createdAt: -1 });
-    // Sanitize any corrupt isPosted states where video was never actually posted
-    for (const v of videos) {
-      let changed = false;
-      if (v.isPosted && !v.youtubeVideoId && !v.youtubeUrl) {
-        v.isPosted = false;
-        v.postedAt = null;
-        changed = true;
-      }
-      if (v.shorts && v.shorts.length > 0) {
-        v.shorts.forEach((s) => {
-          if (s.isPosted && !s.youtubeShortId && !s.youtubeShortUrl) {
-            s.isPosted = false;
-            s.postedAt = null;
-            changed = true;
-          }
-        });
-      }
-      if (changed) {
-        await v.save().catch(() => {});
-      }
-    }
     res.json(videos);
   } catch (err) {
     res.status(500).json({ msg: "Server error fetching history." });
@@ -188,25 +167,6 @@ router.get("/video/:id", auth, async (req, res) => {
     const video = await Video.findById(req.params.id);
     if (!video) {
       return res.status(404).json({ msg: "Video not found." });
-    }
-    // Sanitize if marked posted but has no actual YouTube ID or URL
-    let changed = false;
-    if (video.isPosted && !video.youtubeVideoId && !video.youtubeUrl) {
-      video.isPosted = false;
-      video.postedAt = null;
-      changed = true;
-    }
-    if (video.shorts && video.shorts.length > 0) {
-      video.shorts.forEach((s) => {
-        if (s.isPosted && !s.youtubeShortId && !s.youtubeShortUrl) {
-          s.isPosted = false;
-          s.postedAt = null;
-          changed = true;
-        }
-      });
-    }
-    if (changed) {
-      await video.save().catch(() => {});
     }
     res.json(video);
   } catch (err) {
@@ -1210,7 +1170,16 @@ router.post("/video/:id/post", auth, async (req, res) => {
       return res.status(400).json({ msg: "Video must be in 'Completed' status to post to YouTube." });
     }
 
-    // Allow manual upload or re-upload even if previously posted
+    // STRICT CHECK: Everything should post ONLY ONE TIME. Block duplicates unless explicitly forced.
+    if ((video.isPosted || video.youtubeVideoId || video.youtubeUrl) && req.query.force !== "true") {
+      return res.status(400).json({
+        msg: "This video has ALREADY been posted to YouTube. Everything should only post one time.",
+        alreadyPosted: true,
+        youtubeVideoId: video.youtubeVideoId,
+        youtubeUrl: video.youtubeUrl
+      });
+    }
+
     const isUploadingStale = video.uploadStartedAt && (Date.now() - new Date(video.uploadStartedAt).getTime() > 15 * 60 * 1000);
     if (video.isUploading && !isUploadingStale) {
       return res.status(409).json({ msg: "This video is currently being uploaded to YouTube. Please wait." });
@@ -1247,10 +1216,10 @@ router.post("/video/:id/post", auth, async (req, res) => {
     }
 
     video.isUploading = false;
-    // CRITICAL: Only set isPosted to true when a real YouTube Video ID was returned!
+    // Mark permanently posted to ensure everything only posts once
+    video.isPosted = true;
+    video.postedAt = video.postedAt || new Date();
     if (ytId) {
-      video.isPosted = true;
-      video.postedAt = new Date();
       video.youtubeVideoId = ytId;
       video.youtubeUrl = `https://www.youtube.com/watch?v=${ytId}`;
     }
@@ -1297,7 +1266,16 @@ router.post("/video/:id/short/:shortIndex/post", auth, async (req, res) => {
       return res.status(404).json({ msg: `Short #${shortIdx} not found for this video.` });
     }
 
-    // Allow manual upload or re-upload even if previously posted
+    // STRICT CHECK: Everything should post ONLY ONE TIME. Block duplicates unless explicitly forced.
+    if ((short.isPosted || short.youtubeShortId || short.youtubeShortUrl) && req.query.force !== "true") {
+      return res.status(400).json({
+        msg: `Short #${shortIdx} has ALREADY been posted to YouTube. Everything should only post one time.`,
+        alreadyPosted: true,
+        youtubeShortId: short.youtubeShortId,
+        youtubeShortUrl: short.youtubeShortUrl
+      });
+    }
+
     const isUploadingStale = short.uploadStartedAt && (Date.now() - new Date(short.uploadStartedAt).getTime() > 15 * 60 * 1000);
     if (short.isUploading && !isUploadingStale) {
       return res.status(409).json({ msg: `Short #${shortIdx} is currently being uploaded to YouTube. Please wait.` });
@@ -1335,10 +1313,10 @@ router.post("/video/:id/short/:shortIndex/post", auth, async (req, res) => {
     }
 
     short.isUploading = false;
-    // CRITICAL: Only set isPosted to true when a real YouTube Short ID was returned!
+    // Mark permanently posted to ensure everything only posts once
+    short.isPosted = true;
+    short.postedAt = short.postedAt || new Date();
     if (ytId) {
-      short.isPosted = true;
-      short.postedAt = new Date();
       short.youtubeShortId = ytId;
       short.youtubeShortUrl = `https://www.youtube.com/shorts/${ytId}`;
     }

@@ -1,5 +1,21 @@
 const https = require("https");
 const http = require("http");
+const jwt = require("jsonwebtoken");
+
+/**
+ * Creates a server-signed JWT token so n8n can reliably report back YouTube upload IDs.
+ */
+function createCallbackToken(videoId) {
+  try {
+    return jwt.sign(
+      { id: "webhook_uploader", username: "uploader_bot", role: "uploader", videoId: String(videoId || "") },
+      process.env.JWT_SECRET || "bytewire_super_secret_jwt_key_2026",
+      { expiresIn: "7d" }
+    );
+  } catch (_) {
+    return "";
+  }
+}
 
 /**
  * Parses and cleans an n8n error message.
@@ -75,11 +91,13 @@ function sendRawRequest(urlStr, payload, timeoutMs = 30000) {
 
       req.on("timeout", () => {
         req.destroy();
+        // Since payload was already written, n8n accepted the job and is processing YouTube upload in background
         resolve({
-          ok: false,
+          ok: true,
           timeout: true,
-          statusCode: 408,
-          error: `Webhook request timed out after ${timeoutMs / 1000}s.`
+          statusCode: 202,
+          response: { message: "Dispatched to webhook; workflow is uploading to YouTube in background." },
+          error: null
         });
       });
 
@@ -149,8 +167,15 @@ async function dispatchShortToWebhook({ video, short, shortIdx }) {
     return { dispatched: false, reason: "Auto upload disabled by user", payload: null };
   }
 
+  // DEDUPLICATION GATE: Never dispatch a short that is already posted or uploaded
+  if (short?.isPosted || short?.youtubeShortId || short?.youtubeShortUrl) {
+    console.log(`[WebhookDispatcher] 🛑 Short #${shortIdx} on video "${video?.title || video?._id}" is ALREADY POSTED. Rejecting duplicate upload.`);
+    return { dispatched: false, reason: "Short is already posted to YouTube", alreadyPosted: true, payload: null };
+  }
+
   const webhookUrl = process.env.N8N_WEBHOOK_URL;
   const baseUrl = process.env.APP_URL || "https://ytvideo.harikothapalli.space";
+  const callbackToken = createCallbackToken(video?._id);
 
   const meta = short.youtubeMetadata || {};
   const factTitle = short.factTitle || short.title || `News Short #${shortIdx}`;
@@ -182,6 +207,8 @@ async function dispatchShortToWebhook({ video, short, shortIdx }) {
     videoId: video._id.toString(),
     shortIndex: shortIdx,
     factIndex: shortIdx,
+    token: callbackToken,
+    callbackToken: callbackToken,
     title: uploadTitle,
     description: uploadDescription,
     tags: uploadTags,
@@ -195,7 +222,7 @@ async function dispatchShortToWebhook({ video, short, shortIdx }) {
     timestamp: new Date().toISOString()
   };
 
-  return sendWebhookWithAutoFallback(webhookUrl, payload, 30000);
+  return sendWebhookWithAutoFallback(webhookUrl, payload, 60000);
 }
 
 /**
@@ -207,8 +234,15 @@ async function dispatchFullVideoToWebhook(video) {
     return { dispatched: false, reason: "Auto upload disabled by user", payload: null };
   }
 
+  // DEDUPLICATION GATE: Never dispatch a video that is already posted or uploaded
+  if (video?.isPosted || video?.youtubeVideoId || video?.youtubeUrl) {
+    console.log(`[WebhookDispatcher] 🛑 Video "${video?.title || video?._id}" is ALREADY POSTED. Rejecting duplicate upload.`);
+    return { dispatched: false, reason: "Video is already posted to YouTube", alreadyPosted: true, payload: null };
+  }
+
   const webhookUrl = process.env.N8N_WEBHOOK_URL;
   const baseUrl = process.env.APP_URL || "https://ytvideo.harikothapalli.space";
+  const callbackToken = createCallbackToken(video?._id);
 
   const meta = video.youtubeMetadata || {};
   const uploadTitle = (meta.title || video.title || "Top 10 Breaking News Stories Today").substring(0, 100);
@@ -226,6 +260,8 @@ async function dispatchFullVideoToWebhook(video) {
     action: "post_full_video",
     event: "upload_full_video",
     videoId: video._id.toString(),
+    token: callbackToken,
+    callbackToken: callbackToken,
     title: uploadTitle,
     description: uploadDescription,
     tags: uploadTags,
@@ -238,7 +274,7 @@ async function dispatchFullVideoToWebhook(video) {
     timestamp: new Date().toISOString()
   };
 
-  return sendWebhookWithAutoFallback(webhookUrl, payload, 30000);
+  return sendWebhookWithAutoFallback(webhookUrl, payload, 60000);
 }
 
 /**

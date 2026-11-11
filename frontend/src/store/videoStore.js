@@ -199,9 +199,10 @@ export const useVideoStore = create((set, get) => {
       }
     },
 
-    postReel: async (id, shortIndex) => {
+    postReel: async (id, shortIndex, force = false) => {
       try {
-        const res = await axios.post(`${API_URL}/video/${id}/short/${shortIndex}/post`, {}, get().getHeaders());
+        const url = `${API_URL}/video/${id}/short/${shortIndex}/post${force ? "?force=true" : ""}`;
+        const res = await axios.post(url, {}, get().getHeaders());
         get().fetchHistory();
         return res.data;
       } catch (err) {
@@ -211,9 +212,10 @@ export const useVideoStore = create((set, get) => {
       }
     },
 
-    postFullVideo: async (id) => {
+    postFullVideo: async (id, force = false) => {
       try {
-        const res = await axios.post(`${API_URL}/video/${id}/post`, {}, get().getHeaders());
+        const url = `${API_URL}/video/${id}/post${force ? "?force=true" : ""}`;
+        const res = await axios.post(url, {}, get().getHeaders());
         get().fetchHistory();
         return res.data;
       } catch (err) {
