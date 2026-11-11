@@ -1,24 +1,6 @@
 {
-  "name": "ByteWire - Auto YouTube Publishing Schedule (5:30 AM Full Video, 9 AM, 2 PM, 6 PM Shorts)",
+  "name": "ByteWire - Auto YouTube Publishing (Webhook-Driven Only)",
   "nodes": [
-    {
-      "parameters": {
-        "rule": {
-          "interval": [
-            { "triggerAtHour": 5, "triggerAtMinute": 30 },
-            { "triggerAtHour": 9, "triggerAtMinute": 0 },
-            { "triggerAtHour": 14, "triggerAtMinute": 0 },
-            { "triggerAtHour": 18, "triggerAtMinute": 0 }
-          ]
-        }
-      },
-      "id": "schedule-trigger",
-      "name": "Schedule Trigger (5:30 AM, 9 AM, 2 PM, 6 PM)",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
-      "position": [240, 300],
-      "notes": "Runs automatically at 05:30 (Full Telugu Video), 09:00 (Short #1), 14:00 (Short #2), 18:00 (Short #3) IST."
-    },
     {
       "parameters": {
         "httpMethod": "POST",
@@ -30,8 +12,8 @@
       "name": "Webhook Trigger (ByteWire Push)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [240, 460],
-      "notes": "ByteWire POSTs here on scheduled publishing triggers."
+      "position": [240, 300],
+      "notes": "Triggered exclusively by ByteWire backend webhook POST requests."
     },
     {
       "parameters": {
@@ -76,7 +58,7 @@
     },
     {
       "parameters": {
-        "jsCode": "let webhookPayload = null;\nlet targetVideoId = null;\nlet singleShortIndex = null;\nlet isSingleShort = false;\nlet isFullVideoOnly = false;\n\ntry {\n  const webhookNode = $(\"Webhook Trigger (ByteWire Push)\").first();\n  webhookPayload = webhookNode?.json?.body || webhookNode?.json;\n  targetVideoId = webhookPayload?.videoId;\n  singleShortIndex = webhookPayload?.shortIndex || webhookPayload?.factIndex;\n  isSingleShort = webhookPayload?.action === \"post_reel\" || webhookPayload?.event === \"upload_single_short\" || !!singleShortIndex;\n  isFullVideoOnly = webhookPayload?.action === \"post_full_video\" || webhookPayload?.event === \"upload_full_video\";\n\n  if (webhookPayload?.event === \"ping\" || webhookPayload?.action === \"test_connection\") {\n    return [{ json: { skip: true, status: \"ok\", message: \"ByteWire n8n Webhook connection verified successfully!\" } }];\n  }\n\n  // If 5 AM completion event arrives, DO NOT post to YouTube\n  if (webhookPayload?.event === \"video.completed\" || webhookPayload?.action === \"store_only\") {\n    return [{ json: { skip: true, message: \"5:00 AM video generation complete. Upload scheduled for 6 AM (full), 9 AM (Short 1), 2 PM (Short 2), 6 PM (Short 3).\" } }];\n  }\n} catch (_) {}\n\nlet token = webhookPayload?.token || webhookPayload?.callbackToken;\ntry {\n  if (!token) {\n    const loginData = $(\"1. Login to ByteWire API\").first().json;\n    token = loginData.token;\n  }\n} catch (_) {}\n\nconst allItems = $input.all().map(item => item.json);\nconst videoList = allItems.length === 1 && Array.isArray(allItems[0]) ? allItems[0] : allItems;\n\n// If triggered on schedule (or no specific action provided), determine slot by current IST time (UTC+5:30)\nif (!webhookPayload || (!isSingleShort && !isFullVideoOnly && !targetVideoId)) {\n  const now = new Date();\n  const utcHours = now.getUTCHours();\n  const utcMins = now.getUTCMinutes();\n  const istHours = (utcHours + 5 + Math.floor((utcMins + 30) / 60)) % 24;\n\n  if (istHours >= 5 && istHours < 8) {\n    isFullVideoOnly = true;\n  } else if (istHours >= 8 && istHours < 12) {\n    isSingleShort = true;\n    singleShortIndex = 1;\n  } else if (istHours >= 12 && istHours < 16) {\n    isSingleShort = true;\n    singleShortIndex = 2;\n  } else if (istHours >= 16 && istHours < 22) {\n    isSingleShort = true;\n    singleShortIndex = 3;\n  }\n}\n\nlet pendingUploads = [];\nif (isSingleShort && targetVideoId) {\n  pendingUploads = videoList.filter(v => {\n    if (!v || String(v._id) !== String(targetVideoId)) return false;\n    if (v.disableAutoUpload) return false;\n    const s = (v.shorts || []).find((sh, idx) => Number(sh.factIndex) === Number(singleShortIndex) || (idx + 1) === Number(singleShortIndex));\n    return s && !s.disableAutoUpload && !s.isPosted && !s.youtubeShortId && !s.youtubeShortUrl;\n  });\n} else if (isSingleShort) {\n  pendingUploads = videoList.filter(v => {\n    if (!v || v.status !== \"Completed\" || v.disableAutoUpload) return false;\n    const s = (v.shorts || []).find((sh, idx) => Number(sh.factIndex) === Number(singleShortIndex) || (idx + 1) === Number(singleShortIndex));\n    return s && !s.disableAutoUpload && !s.isPosted && !s.youtubeShortId && !s.youtubeShortUrl;\n  });\n} else if (targetVideoId) {\n  pendingUploads = videoList.filter(v => v && String(v._id) === String(targetVideoId) && !v.disableAutoUpload && !v.youtubeVideoId && !v.isPosted && !v.youtubeUrl);\n} else {\n  pendingUploads = videoList.filter(v => v && v.status === \"Completed\" && !v.disableAutoUpload && !v.youtubeVideoId && !v.isPosted && !v.youtubeUrl);\n}\n\nif (pendingUploads.length === 0) {\n  return [{ json: { skip: true, message: \"No pending video or short ready for publishing (already published or not found).\" } }];\n}\n\nconst video = pendingUploads[0];\nreturn [{\n  json: {\n    skip: false,\n    isSingleShort: isSingleShort,\n    isFullVideoOnly: isFullVideoOnly,\n    singleShortIndex: singleShortIndex,\n    webhookPayload: webhookPayload,\n    videoId: video._id,\n    token: token,\n    title: video.title,\n    subject: video.subject,\n    status: video.status,\n    youtubeMetadata: video.youtubeMetadata || {},\n    shorts: (video.shorts || []).slice(0, 3),\n    shortsCount: Math.min(3, (video.shorts || []).length),\n    videoUrl: \"https://ytvideo.harikothapalli.space/videos/\" + video._id + \".mp4\",\n    thumbnailUrl: \"https://ytvideo.harikothapalli.space/thumbnails/\" + video._id + \".png\"\n  }\n}];"
+        "jsCode": "let webhookPayload = null;\nlet targetVideoId = null;\nlet singleShortIndex = null;\nlet isSingleShort = false;\nlet isFullVideoOnly = false;\n\ntry {\n  const webhookNode = $(\"Webhook Trigger (ByteWire Push)\").first();\n  webhookPayload = webhookNode?.json?.body || webhookNode?.json;\n  targetVideoId = webhookPayload?.videoId;\n  singleShortIndex = webhookPayload?.shortIndex || webhookPayload?.factIndex;\n  isSingleShort = webhookPayload?.action === \"post_reel\" || webhookPayload?.event === \"upload_single_short\" || !!singleShortIndex;\n  isFullVideoOnly = webhookPayload?.action === \"post_full_video\" || webhookPayload?.event === \"upload_full_video\";\n\n  if (webhookPayload?.event === \"ping\" || webhookPayload?.action === \"test_connection\") {\n    return [{ json: { skip: true, status: \"ok\", message: \"ByteWire n8n Webhook connection verified successfully!\" } }];\n  }\n} catch (_) {}\n\nif (!targetVideoId) {\n  return [{ json: { skip: true, message: \"No videoId provided in webhook payload. Execution skipped.\" } }];\n}\n\nlet token = webhookPayload?.token || webhookPayload?.callbackToken;\ntry {\n  if (!token) {\n    const loginData = $(\"1. Login to ByteWire API\").first().json;\n    token = loginData.token;\n  }\n} catch (_) {}\n\nconst allItems = $input.all().map(item => item.json);\nconst videoList = allItems.length === 1 && Array.isArray(allItems[0]) ? allItems[0] : allItems;\n\nlet pendingUploads = [];\nif (isSingleShort) {\n  // DEDUPLICATION: Find targeted video & verify this specific short has NOT already been posted\n  pendingUploads = videoList.filter(v => {\n    if (!v || String(v._id) !== String(targetVideoId)) return false;\n    if (v.disableAutoUpload) return false;\n    const s = (v.shorts || []).find((sh, idx) => Number(sh.factIndex) === Number(singleShortIndex) || (idx + 1) === Number(singleShortIndex));\n    return s && !s.disableAutoUpload && !s.isPosted && !s.youtubeShortId && !s.youtubeShortUrl;\n  });\n} else {\n  // DEDUPLICATION: Find targeted video & verify it has NOT already been posted\n  pendingUploads = videoList.filter(v => v && String(v._id) === String(targetVideoId) && !v.disableAutoUpload && !v.youtubeVideoId && !v.isPosted && !v.youtubeUrl);\n}\n\nif (pendingUploads.length === 0) {\n  return [{ json: { skip: true, message: \"Video or short is already published or upload is disabled. Skipped to prevent duplicate posting.\" } }];\n}\n\nconst video = pendingUploads[0];\nreturn [{\n  json: {\n    skip: false,\n    isSingleShort: isSingleShort,\n    isFullVideoOnly: isFullVideoOnly,\n    singleShortIndex: singleShortIndex,\n    webhookPayload: webhookPayload,\n    videoId: video._id,\n    token: token,\n    title: video.title,\n    subject: video.subject,\n    status: video.status,\n    youtubeMetadata: video.youtubeMetadata || {},\n    shorts: (video.shorts || []).slice(0, 3),\n    shortsCount: Math.min(3, (video.shorts || []).length),\n    videoUrl: \"https://ytvideo.harikothapalli.space/videos/\" + video._id + \".mp4\",\n    thumbnailUrl: \"https://ytvideo.harikothapalli.space/thumbnails/\" + video._id + \".png\"\n  }\n}];"
       },
       "id": "filter-pending-videos",
       "name": "3. Find Pending Upload",
@@ -257,7 +239,6 @@
     }
   ],
   "connections": {
-    "Schedule Trigger (5:30 AM, 9 AM, 2 PM, 6 PM)": { "main": [[{ "node": "1. Login to ByteWire API", "type": "main", "index": 0 }]] },
     "Webhook Trigger (ByteWire Push)": { "main": [[{ "node": "1. Login to ByteWire API", "type": "main", "index": 0 }]] },
     "1. Login to ByteWire API": { "main": [[{ "node": "2. Get Video History", "type": "main", "index": 0 }]] },
     "2. Get Video History": { "main": [[{ "node": "3. Find Pending Upload", "type": "main", "index": 0 }]] },
